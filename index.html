@@ -17,10 +17,10 @@
 </head>
 <body class="bg-[#0f131c] text-[#dfe2ee] min-h-screen flex flex-col justify-between relative selection:bg-blue-600 selection:text-white overflow-x-hidden">
 
-  <!-- Background WebGL Shader Canvas -->
+  <!-- WebThreads Animated Background Shader Canvas -->
   <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-    <canvas id="shader-canvas" class="absolute inset-0 w-full h-full"></canvas>
-    <div class="absolute inset-0 bg-[#0f131c]/60 backdrop-blur-[1px]"></div>
+    <canvas id="threads-canvas" class="absolute inset-0 w-full h-full"></canvas>
+    <div class="absolute inset-0 bg-[#0f131c]/30"></div>
   </div>
 
   <!-- Global Header Bar -->
@@ -28,20 +28,12 @@
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       <!-- University Branding -->
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 cobalt-glow-sm">
+        <div class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
           <span class="material-symbols-outlined text-xl">school</span>
         </div>
         <div class="flex flex-col">
           <span class="font-headline text-lg font-bold text-white leading-none tracking-tight">SATHYABAMA</span>
           <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-0.5">Institute of Science and Technology</span>
-        </div>
-      </div>
-
-      <!-- Action Status Bar -->
-      <div class="flex items-center gap-4">
-        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-blue-300">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Portal Proxy Connected</span>
         </div>
       </div>
     </div>
@@ -53,14 +45,12 @@
     <!-- LOGIN SECTION -->
     <section id="loginSection" class="w-full max-w-[460px] my-auto">
       <div class="glass-card rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        <div class="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-blue-500/50 to-transparent"></div>
-        
         <div class="text-center mb-6">
-          <div class="inline-flex p-3 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 mb-3 cobalt-glow-sm">
+          <div class="inline-flex p-3 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 mb-3">
             <span class="material-symbols-outlined text-2xl">account_circle</span>
           </div>
           <h1 class="text-2xl font-bold text-white tracking-tight mb-1">Student Portal Login</h1>
-          <p class="text-xs text-gray-400">Enter your official credentials to access profile, attendance, and exam grades.</p>
+          <p class="text-xs text-gray-400">Enter your official credentials to access student details.</p>
         </div>
 
         <div id="statusMessage" class="hidden"></div>
@@ -70,7 +60,7 @@
             <label for="regNumber" class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">Register Number *</label>
             <div class="relative flex items-center glass-input rounded-xl overflow-hidden">
               <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">person</span>
-              <input type="text" id="regNumber" name="regNumber" placeholder="e.g., 14511241" required
+              <input type="text" id="regNumber" name="regNumber" placeholder="Register Number" required
                      class="w-full bg-transparent pl-10 pr-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
             </div>
           </div>
@@ -108,15 +98,15 @@
       <!-- Top Student Bar -->
       <div class="glass-card rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
         <div class="flex items-center gap-4 text-center md:text-left">
-          <div id="avatarInitials" class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white font-bold text-xl flex items-center justify-center shadow-lg shadow-blue-600/30">
-            GS
+          <div id="avatarInitials" class="w-12 h-12 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 font-bold text-lg flex items-center justify-center">
+            --
           </div>
           <div>
-            <h2 id="headerStudentName" class="text-xl font-bold text-white tracking-tight">GOWTHAM S</h2>
-            <div class="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs text-blue-300 mt-0.5">
-              <span id="headerRegNo" class="font-semibold">REG NO: 14511241</span>
+            <h2 id="headerStudentName" class="text-xl font-bold text-white tracking-tight">--</h2>
+            <div class="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs text-gray-400 mt-0.5">
+              <span id="headerRegNo" class="font-semibold">--</span>
               <span>•</span>
-              <span id="headerBranch">COMPUTER SCIENCE AND ENGINEERING • SEMESTER 3</span>
+              <span id="headerBranch">--</span>
             </div>
           </div>
         </div>
@@ -129,7 +119,7 @@
         </div>
       </div>
 
-      <!-- Navigation Bar Tabs (Scrollable on mobile) -->
+      <!-- Navigation Bar Tabs -->
       <div class="glass-card p-2 rounded-2xl flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
         <button id="tab-btn-profile" onclick="setTab('profile')"
                 class="px-4 py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white shadow-lg shadow-blue-500/25 flex items-center gap-2 transition-all flex-shrink-0">
@@ -156,8 +146,8 @@
   </main>
 
   <!-- Footer -->
-  <footer class="relative z-10 w-full py-4 text-center text-xs text-gray-500 border-t border-white/5">
-    Sathyabama Institute of Science and Technology • Modern Portal Wrapper v1.0
+  <footer class="relative z-10 w-full py-4 text-center text-xs text-gray-600 border-t border-white/5">
+    Sathyabama Institute of Science and Technology
   </footer>
 
   <!-- Core Scripts -->

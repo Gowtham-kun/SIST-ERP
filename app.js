@@ -6,48 +6,233 @@
 let appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday' };
 
 document.addEventListener('DOMContentLoaded', () => {
-  initShader();
+  initWebThreads();
   const stored = PortalAPI.getStoredCredentials();
   if (stored) autoLogin(stored.regNumber, stored.password);
 });
 
-// ── WebGL Background Shader ───────────────────────────────────────────────────
-function initShader() {
-  const canvas = document.getElementById('shader-canvas');
+// ── WebThreads Shader Component (React Bits Adaptation for Vanilla WebGL2) ────
+function initWebThreads() {
+  const canvas = document.getElementById('threads-canvas');
   if (!canvas) return;
-  const sync = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
-  window.addEventListener('resize', sync); sync();
-  const gl = canvas.getContext('webgl');
+
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false });
   if (!gl) return;
-  const VS = `attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}`;
-  const FS = `precision highp float;uniform vec2 R;uniform float T;
-  #define N 6
-  float glow(float x){return 0.02/pow(max(x,1e-4),0.65);}
-  void main(){
-    vec2 uv=gl_FragCoord.xy/R;float c=0.;
-    for(int i=0;i<N;i++){
-      float fi=float(i);
-      float amp=0.16*abs(uv.x-.5)*(1.+fi*.8);
-      float sdf=abs(uv.y-.5+sin(uv.x*4.5+T*.15+fi*1.047)*amp);
-      vec3 col=mix(vec3(.145,.388,.921),vec3(.53,.22,.98),fi/float(N-1));
-      c+=glow(sdf);
-    }
-    vec3 bg=vec3(.06,.07,.11);
-    gl_FragColor=vec4(mix(bg,vec3(.145,.388,.921)*c*.65+bg,clamp(c,0.,1.)),1.);
+
+  const vsSource = `#version 300 es
+  in vec2 position;
+  void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
   }`;
-  const mk = (t,s) => { const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);return x; };
-  const pr = gl.createProgram();
-  gl.attachShader(pr,mk(gl.VERTEX_SHADER,VS));
-  gl.attachShader(pr,mk(gl.FRAGMENT_SHADER,FS));
-  gl.linkProgram(pr); gl.useProgram(pr);
-  const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
-  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-  const pp=gl.getAttribLocation(pr,'p'); gl.enableVertexAttribArray(pp);
-  gl.vertexAttribPointer(pp,2,gl.FLOAT,false,0,0);
-  const uR=gl.getUniformLocation(pr,'R'), uT=gl.getUniformLocation(pr,'T');
-  (function loop(t){ gl.viewport(0,0,canvas.width,canvas.height);
-    gl.uniform2f(uR,canvas.width,canvas.height); gl.uniform1f(uT,t*.001);
-    gl.drawArrays(gl.TRIANGLE_STRIP,0,4); requestAnimationFrame(loop); })(0);
+
+  const fsSource = `#version 300 es
+  precision highp float;
+  uniform vec2 iResolution;
+  uniform float iTime;
+  uniform float uSpeed;
+  uniform float uThreadCount;
+  uniform float uFrequency;
+  uniform float uSpread;
+  uniform float uTaper;
+  uniform float uPosition;
+  uniform float uFanMode;
+  uniform float uGlow;
+  uniform float uFalloff;
+  uniform float uThickness;
+  uniform float uBrightness;
+  uniform float uOpacity;
+  uniform float uMirror;
+  uniform float uShimmer;
+  uniform float uGrain;
+  uniform float uGrainIntensity;
+  uniform vec3 uColor1;
+  uniform vec3 uColor2;
+  uniform vec3 uColor3;
+  uniform vec3 uBackgroundColor;
+  uniform bool uLightMode;
+  uniform vec2 uMouse;
+  uniform float uMouseStrength;
+  uniform float uEnableMouse;
+  uniform float uMouseActive;
+  out vec4 fragColor;
+
+  #define TAU 6.28318530718
+  #define MAX_THREADS 10
+
+  float glow(float x, float str, float dist) {
+    return dist / pow(max(x, 1e-4), str);
+  }
+
+  void main() {
+    vec2 uv = gl_FragCoord.xy / iResolution.xy;
+    float n = max(uThreadCount, 1.0);
+
+    float pinchX = uFanMode < 0.5 ? 0.5 : (uFanMode < 1.5 ? 0.0 : 1.0);
+    if (uEnableMouse > 0.5) {
+      pinchX = mix(pinchX, uMouse.x, clamp(uMouseStrength, 0.0, 1.0) * uMouseActive);
+    }
+
+    float spreadDx = uSpread * abs(uv.x - pinchX);
+    float baseT = iTime * uSpeed;
+    float tauOverN = TAU / n;
+    float mirror = uMirror > 0.5 ? sign(pinchX - uv.x) : 1.0;
+    bool doShimmer = uShimmer > 0.5;
+    float shimmerT = iTime * 1.7;
+    float invThickness = 1.0 / max(uThickness, 0.01);
+    float xFreq = uv.x * uFrequency;
+    float yOff = uv.y - uPosition;
+    float ciScale = n > 1.0 ? 1.0 / (n - 1.0) : 0.0;
+
+    vec3 col = vec3(0.0);
+    float gsum = 0.0;
+
+    for (int idx = 0; idx < MAX_THREADS; idx++) {
+      float i = float(idx);
+      if (i >= n) break;
+
+      float amplitude = spreadDx * (1.0 + i * uTaper);
+      float shimmer = doShimmer ? sin(shimmerT + i * 1.3) * 0.35 : 0.0;
+      float phase = (baseT + i * tauOverN) * mirror + shimmer;
+
+      float sdf = abs(yOff + sin(xFreq + phase) * amplitude) * invThickness;
+
+      float g = glow(sdf, uFalloff, uGlow);
+      float ci = i * ciScale;
+      vec3 threadCol = mix(uColor1, uColor2, ci);
+
+      col += g * threadCol;
+      gsum += g;
+    }
+
+    float coreAmt = smoothstep(0.5, 2.2, gsum);
+    col = mix(col, uColor3 * gsum, coreAmt * 0.5);
+
+    float bright = uBrightness;
+    if (uEnableMouse > 0.5) {
+      vec2 md = uv - uMouse;
+      float d2 = dot(md, md);
+      bright += clamp(uMouseStrength, 0.0, 1.0) * uMouseActive * exp(-d2 * 6.0) * 0.6;
+    }
+    col *= bright;
+
+    float alpha = clamp(gsum, 0.0, 1.0) * uOpacity;
+
+    vec3 outRgb = col * alpha;
+
+    if (uGrain > 0.5) {
+      float gv = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233)) + iTime) * 43758.5453) - 0.5) * uGrainIntensity;
+      outRgb = clamp(outRgb + gv, 0.0, 1.0);
+      alpha = clamp(alpha + gv, 0.0, 1.0);
+    }
+
+    if (uLightMode) {
+      vec3 mapped = vec3(1.0) - exp(-max(col, vec3(0.0)) * 1.3);
+      float rawEnergy = clamp(max(mapped.r, max(mapped.g, mapped.b)) * uOpacity, 0.0, 1.0);
+      float coverage = smoothstep(0.18, 0.72, rawEnergy);
+      coverage *= coverage;
+      vec3 hue = mapped / max(max(mapped.r, max(mapped.g, mapped.b)), 1e-4);
+      vec3 chroma = pow(clamp(hue, 0.0, 1.0), vec3(0.78));
+      vec3 pigment = mix(chroma, vec3(0.08), 0.12);
+      vec3 ink = mix(vec3(0.9), pigment, 0.82 + coverage * 0.18);
+      fragColor = vec4(mix(uBackgroundColor, ink, coverage), 1.0);
+    } else {
+      fragColor = vec4(outRgb, alpha);
+    }
+  }`;
+
+  const createShader = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  };
+
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, createShader(gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const posLoc = gl.getAttribLocation(program, 'position');
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const uResLoc = gl.getUniformLocation(program, 'iResolution');
+  const uTimeLoc = gl.getUniformLocation(program, 'iTime');
+  gl.uniform1f(gl.getUniformLocation(program, 'uSpeed'), 0.2);
+  gl.uniform1f(gl.getUniformLocation(program, 'uThreadCount'), 6.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uFrequency'), 5.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uSpread'), 0.18);
+  gl.uniform1f(gl.getUniformLocation(program, 'uTaper'), 1.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uPosition'), 0.5);
+  gl.uniform1f(gl.getUniformLocation(program, 'uFanMode'), 0.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uGlow'), 0.02);
+  gl.uniform1f(gl.getUniformLocation(program, 'uFalloff'), 0.6);
+  gl.uniform1f(gl.getUniformLocation(program, 'uThickness'), 1.1);
+  gl.uniform1f(gl.getUniformLocation(program, 'uBrightness'), 0.6);
+  gl.uniform1f(gl.getUniformLocation(program, 'uOpacity'), 1.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uMirror'), 1.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uShimmer'), 0.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uGrain'), 0.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uGrainIntensity'), 0.0);
+
+  gl.uniform3f(gl.getUniformLocation(program, 'uColor1'), 0.321, 0.153, 1.0);
+  gl.uniform3f(gl.getUniformLocation(program, 'uColor2'), 1.0, 0.623, 0.988);
+  gl.uniform3f(gl.getUniformLocation(program, 'uColor3'), 1.0, 1.0, 1.0);
+  gl.uniform3f(gl.getUniformLocation(program, 'uBackgroundColor'), 0.06, 0.07, 0.11);
+  gl.uniform1i(gl.getUniformLocation(program, 'uLightMode'), 0);
+
+  const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+  gl.uniform1f(gl.getUniformLocation(program, 'uMouseStrength'), 0.3);
+  gl.uniform1f(gl.getUniformLocation(program, 'uEnableMouse'), 1.0);
+  const uMouseActiveLoc = gl.getUniformLocation(program, 'uMouseActive');
+
+  let targetMouse = [0.5, 0.5];
+  let currMouse = [0.5, 0.5];
+  let targetActive = 0;
+  let currActive = 0;
+
+  window.addEventListener('mousemove', (e) => {
+    targetMouse[0] = e.clientX / window.innerWidth;
+    targetMouse[1] = 1.0 - (e.clientY / window.innerHeight);
+    targetActive = 1;
+  });
+
+  const syncSize = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+  };
+  window.addEventListener('resize', syncSize);
+  syncSize();
+
+  const t0 = performance.now();
+  function render(t) {
+    gl.uniform1f(uTimeLoc, (t - t0) * 0.001);
+    currMouse[0] += 0.05 * (targetMouse[0] - currMouse[0]);
+    currMouse[1] += 0.05 * (targetMouse[1] - currMouse[1]);
+    currActive += 0.05 * (targetActive - currActive);
+
+    gl.uniform2f(uMouseLoc, currMouse[0], currMouse[1]);
+    gl.uniform1f(uMouseActiveLoc, currActive);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+}
+
+// Helper fallback function: returns '[404]' if field is missing, null, undefined, empty, or placeholder dash
+function val(v) {
+  if (v === null || v === undefined) return '[404]';
+  const str = String(v).trim();
+  if (str === '' || str === 'null' || str === 'undefined' || str === '-') return '[404]';
+  return str;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -78,7 +263,6 @@ async function executeLogin(regNumber, password, remember) {
   btn.innerHTML = `<span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span><span>Authenticating via ERP Portal...</span>`;
 
   try {
-    // POST credentials to Express/Playwright backend
     const result = await PortalAPI.login(regNumber, password, remember);
 
     appState.user = result.student;
@@ -115,10 +299,10 @@ function showStatus(el, type, msg) {
 // ── Navigation ────────────────────────────────────────────────────────────────
 function renderHeader() {
   const s = appState.data.studentDetails;
-  document.getElementById('headerStudentName').textContent = s.name;
-  document.getElementById('headerRegNo').textContent       = `REG NO: ${s.regNo}`;
-  document.getElementById('headerBranch').textContent      = `${s.department} • SEMESTER ${s.semester}`;
-  document.getElementById('avatarInitials').textContent    = s.name.split(' ').map(n=>n[0]).join('').slice(0,2);
+  document.getElementById('headerStudentName').textContent = val(s.name);
+  document.getElementById('headerRegNo').textContent       = `REG NO: ${val(s.regNo)}`;
+  document.getElementById('headerBranch').textContent      = `${val(s.department)} • SEMESTER ${val(s.semester)}`;
+  document.getElementById('avatarInitials').textContent    = (s.name && s.name !== '[404]') ? s.name.split(' ').map(n=>n[0]).join('').slice(0,2) : '??';
 }
 
 function setTab(tab) {
@@ -135,139 +319,107 @@ function setTab(tab) {
 
 function setTimetableDay(day) { appState.timetableDay = day; setTab('timetable'); }
 
-// ── Profile Tab ───────────────────────────────────────────────────────────────
+// ── Profile Tab (Minimalist & Dynamic with [404] Fallback) ────────────────────
 function renderProfile() {
   const s = appState.data.studentDetails;
+
   return `
-  <div class="tab-content space-y-6">
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-      <!-- LEFT SIDEBAR CARD -->
-      <div class="lg:col-span-4 glass-card rounded-2xl p-6 flex flex-col items-center text-center relative overflow-hidden border border-white/10">
-        <div class="relative w-32 h-32 mb-4">
-          <div class="w-32 h-32 rounded-full overflow-hidden border-4 border-amber-600/60 shadow-xl mx-auto flex items-center justify-center bg-gray-800">
-            ${s.photo ? `<img src="${s.photo}" alt="${s.name}" class="w-full h-full object-cover"/>` : `<span class="text-3xl font-bold text-white">${s.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</span>`}
-          </div>
+  <div class="tab-content space-y-8">
+    
+    <!-- Top Minimal Header Card -->
+    <div class="glass-card rounded-xl p-6 border border-white/10">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-white tracking-tight uppercase">${val(s.name)}</h2>
+          <p class="text-sm font-semibold text-blue-400 mt-1">${val(s.programme)}</p>
+          <p class="text-xs text-gray-400 mt-0.5">${val(s.email)}</p>
         </div>
-
-        <h2 class="text-xl font-bold text-white tracking-wide uppercase mb-1">${s.name}</h2>
-        <p class="text-amber-400 font-bold text-base tracking-wider mb-1">${s.regNo}</p>
-        <p class="text-gray-300 text-xs font-semibold uppercase tracking-wider mb-2 px-2 leading-relaxed">${s.programme}</p>
-        
-        <div class="flex items-center gap-1.5 text-xs text-blue-300 mb-6 bg-blue-500/10 px-3 py-1.5 rounded-full border border-blue-500/20 max-w-full truncate">
-          <span class="material-symbols-outlined text-sm">mail</span>
-          <span class="truncate">${s.email}</span>
-        </div>
-
-        <div class="w-full border-t border-white/10 my-2"></div>
-
-        <div class="w-full space-y-2.5 text-xs text-left pt-2">
-          <div class="flex justify-between items-center"><span class="text-gray-400">RollNumber</span><span class="text-gray-200 font-medium">: ${s.rollNumber || ''}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Date of Birth</span><span class="text-gray-200 font-medium">: ${s.dob}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Mobile</span><span class="text-gray-200 font-medium">: ${s.mobile}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Age</span><span class="text-gray-200 font-medium">: ${s.age}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Batch</span><span class="text-gray-200 font-medium">: ${s.batch}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Semester</span><span class="text-gray-200 font-medium">: ${s.semester}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Year</span><span class="text-gray-200 font-medium">: ${s.yearDisplay}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">Section Name</span><span class="text-gray-200 font-medium">: ${s.section}</span></div>
-          <div class="flex justify-between items-center"><span class="text-gray-400">School</span><span class="text-gray-200 font-medium">: ${s.school}</span></div>
+        <div class="text-left sm:text-right text-xs space-y-1">
+          <div><span class="text-gray-400">Register No:</span> <span class="text-white font-mono font-bold">${val(s.regNo)}</span></div>
+          <div><span class="text-gray-400">Section:</span> <span class="text-white font-semibold">${val(s.section)}</span></div>
+          <div><span class="text-gray-400">School:</span> <span class="text-white font-semibold">${val(s.school)}</span></div>
         </div>
       </div>
+    </div>
 
-      <!-- RIGHT COLUMN -->
-      <div class="lg:col-span-8 space-y-6">
+    <!-- Main Content Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
 
-        <!-- PERSONAL DETAILS GRID -->
-        <div class="glass-card rounded-2xl p-6 border border-white/10">
-          <h3 class="text-center text-sm font-bold text-gray-200 uppercase tracking-widest mb-6 pb-2 border-b border-white/10">
-            PERSONAL DETAILS
-          </h3>
+      <!-- Left Academic Info -->
+      <div class="lg:col-span-4 glass-card rounded-xl p-6 border border-white/10 space-y-3 text-xs">
+        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-widest pb-2 border-b border-white/10 mb-2">ACADEMIC SUMMARY</h3>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Roll Number</span><span class="text-white font-mono">${val(s.rollNumber)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Date of Birth</span><span class="text-white">${val(s.dob)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Mobile</span><span class="text-white">${val(s.mobile)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Age</span><span class="text-white">${val(s.age)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Batch</span><span class="text-white">${val(s.batch)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Semester</span><span class="text-white">${val(s.semester)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Year</span><span class="text-white">${val(s.yearDisplay)}</span></div>
+        <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Section Name</span><span class="text-white">${val(s.section)}</span></div>
+        <div class="flex justify-between py-1"><span class="text-gray-400">School</span><span class="text-white">${val(s.school)}</span></div>
+      </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6 text-xs divide-y sm:divide-y-0 divide-white/5">
-            <div><span class="text-gray-400 block mb-0.5 font-medium">Name</span><span class="text-white font-bold text-sm">${s.name}</span></div>
-            <div><span class="text-gray-400 block mb-0.5 font-medium">Gender</span><span class="text-white font-bold text-sm">${s.gender}</span></div>
-            <div></div>
+      <!-- Right Personal & Family Info -->
+      <div class="lg:col-span-8 space-y-8">
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Blood Group</span><span class="text-white font-semibold">${s.bloodGroup}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Medical History</span><span class="text-white font-semibold">${s.medicalHistory}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">NativeState</span><span class="text-white font-semibold">${s.nativeState}</span></div>
+        <!-- Personal Details -->
+        <div class="glass-card rounded-xl p-6 border border-white/10">
+          <h3 class="text-xs font-bold text-gray-300 uppercase tracking-widest pb-3 border-b border-white/10 mb-4">PERSONAL DETAILS</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+            <div><span class="text-gray-400 block mb-0.5">Name</span><span class="text-white font-semibold">${val(s.name)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Gender</span><span class="text-white font-semibold">${val(s.gender)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Blood Group</span><span class="text-white font-semibold">${val(s.bloodGroup)}</span></div>
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Height</span><span class="text-white font-semibold">${s.height}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Date Of Birth</span><span class="text-white font-semibold">${s.dob}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Nationality</span><span class="text-white font-semibold">${s.nationality}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Medical History</span><span class="text-white font-semibold">${val(s.medicalHistory)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Native State</span><span class="text-white font-semibold">${val(s.nativeState)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Height</span><span class="text-white font-semibold">${val(s.height)}</span></div>
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Religion</span><span class="text-white font-semibold">${s.religion}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Community</span><span class="text-white font-semibold">${s.community}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Mother Tongue</span><span class="text-white font-semibold">${s.motherTongue}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Date Of Birth</span><span class="text-white font-semibold">${val(s.dob)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Nationality</span><span class="text-white font-semibold">${val(s.nationality)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Religion</span><span class="text-white font-semibold">${val(s.religion)}</span></div>
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Stayed in Hostel?</span><span class="text-white font-semibold">${s.stayedInHostel}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Native Place</span><span class="text-white font-semibold">${s.nativePlace}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Weight</span><span class="text-white font-semibold">${s.weight}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Community</span><span class="text-white font-semibold">${val(s.community)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Mother Tongue</span><span class="text-white font-semibold">${val(s.motherTongue)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Stayed in Hostel?</span><span class="text-white font-semibold">${val(s.stayedInHostel)}</span></div>
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Aadhaar</span><span class="text-white font-semibold">${s.aadhaar}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Mother Name</span><span class="text-white font-semibold">${s.motherName}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Student Mobile No</span><span class="text-white font-semibold">${s.studentMobile}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Native Place</span><span class="text-white font-semibold">${val(s.nativePlace)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Weight</span><span class="text-white font-semibold">${val(s.weight)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Aadhaar</span><span class="text-white font-semibold">${val(s.aadhaar)}</span></div>
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Student Email</span><span class="text-white font-semibold truncate block">${s.studentEmail}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">First Graduate</span><span class="text-white font-semibold">${s.firstGraduate}</span></div>
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Extra Curricular</span><span class="text-white font-semibold">${s.extraCurricular}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Mother Name</span><span class="text-white font-semibold">${val(s.motherName)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Student Mobile No</span><span class="text-white font-semibold">${val(s.studentMobile)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Student Email</span><span class="text-white font-semibold truncate block">${val(s.studentEmail)}</span></div>
 
-            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">IsPWD</span><span class="text-white font-semibold">${s.isPwd}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">First Graduate</span><span class="text-white font-semibold">${val(s.firstGraduate)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">Extra Curricular</span><span class="text-white font-semibold">${val(s.extraCurricular)}</span></div>
+            <div><span class="text-gray-400 block mb-0.5">IsPWD</span><span class="text-white font-semibold">${val(s.isPwd)}</span></div>
           </div>
         </div>
 
-        <!-- PARENTS DETAILS -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-          <!-- FATHER DETAILS CARD -->
-          <div class="glass-card rounded-2xl p-6 border border-white/10 flex flex-col items-center text-center">
-            <h4 class="text-xs font-bold text-gray-300 uppercase tracking-wider mb-4 w-full text-left border-b border-white/10 pb-2">FATHER DETAILS</h4>
-            
-            <div class="w-20 h-20 rounded-full overflow-hidden border-2 border-blue-500/40 shadow-md mb-3 flex items-center justify-center bg-gray-800">
-              ${s.fatherPhoto ? `<img src="${s.fatherPhoto}" alt="${s.fatherName}" class="w-full h-full object-cover"/>` : `<span class="text-xl font-bold text-white">${s.fatherName.split(' ').map(n=>n[0]).join('')}</span>`}
-            </div>
-
-            <h5 class="text-sm font-bold text-white mb-0.5">${s.fatherName}</h5>
-            <p class="text-xs text-gray-400 font-medium mb-4">${s.fatherSubtitle}</p>
-
-            <div class="w-full space-y-2 text-xs text-left">
-              <div class="flex justify-between items-center"><span class="text-gray-400">Occupation</span><span class="text-gray-200">: ${s.fatherOccupation}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Office Designation</span><span class="text-gray-200">: ${s.fatherOfficeDesignation}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Annual Income</span><span class="text-gray-200">: ${s.fatherAnnualIncome}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Aadhar</span><span class="text-gray-200 font-semibold">: ${s.fatherAadhaar}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Email</span><span class="text-gray-200">: ${s.fatherEmail}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Mobile</span><span class="text-gray-200">: ${s.fatherMobile}</span></div>
-            </div>
+        <!-- Family Details Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+          <!-- Father Card -->
+          <div class="glass-card rounded-xl p-5 border border-white/10 space-y-2">
+            <h4 class="text-xs font-bold text-gray-300 uppercase tracking-widest pb-2 border-b border-white/10">FATHER DETAILS</h4>
+            <div class="pt-1"><span class="text-gray-400 block mb-0.5">Father Name</span><span class="text-white font-bold text-sm">${val(s.fatherName)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Occupation</span><span class="text-white">${val(s.fatherOccupation)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Office Designation</span><span class="text-white">${val(s.fatherOfficeDesignation)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Annual Income</span><span class="text-white">${val(s.fatherAnnualIncome)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Aadhaar</span><span class="text-white font-mono">${val(s.fatherAadhaar)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Email</span><span class="text-white">${val(s.fatherEmail)}</span></div>
+            <div class="flex justify-between py-1"><span class="text-gray-400">Mobile</span><span class="text-white">${val(s.fatherMobile)}</span></div>
           </div>
 
-          <!-- MOTHER DETAILS CARD -->
-          <div class="glass-card rounded-2xl p-6 border border-white/10 flex flex-col items-center text-center">
-            <h4 class="text-xs font-bold text-gray-300 uppercase tracking-wider mb-4 w-full text-left border-b border-white/10 pb-2">MOTHER DETAILS</h4>
-            
-            <div class="w-20 h-20 rounded-full overflow-hidden border-2 border-blue-500/40 shadow-md mb-3 flex items-center justify-center bg-gray-800">
-              ${s.motherPhoto ? `<img src="${s.motherPhoto}" alt="${s.motherName}" class="w-full h-full object-cover"/>` : `<span class="text-xl font-bold text-white">${s.motherName.split(' ').map(n=>n[0]).join('')}</span>`}
-            </div>
-
-            <h5 class="text-sm font-bold text-white mb-0.5">${s.motherName}</h5>
-            <p class="text-xs text-gray-400 font-medium mb-4">${s.motherSubtitle}</p>
-
-            <div class="w-full space-y-2 text-xs text-left">
-              <div class="flex justify-between items-center"><span class="text-gray-400">Occupation</span><span class="text-gray-200">: ${s.motherOccupation}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Office Designation</span><span class="text-gray-200">: ${s.motherOfficeDesignation}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Annual Income</span><span class="text-gray-200">: ${s.motherAnnualIncome}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Aadhar</span><span class="text-gray-200">: ${s.motherAadhaar}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Email</span><span class="text-gray-200">: ${s.motherEmail}</span></div>
-              <div class="flex justify-between items-center"><span class="text-gray-400">Mobile</span><span class="text-gray-200">: ${s.motherMobile}</span></div>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- SIBLING DETAILS -->
-        <div class="glass-card rounded-2xl p-5 border border-white/10">
-          <h4 class="text-xs font-bold text-gray-300 uppercase tracking-widest text-center mb-3">SIBLING DETAILS</h4>
-          <div class="bg-white/5 rounded-xl p-3 text-center text-xs text-gray-400 border border-white/5 font-medium">
-            No Data Avaliable
+          <!-- Mother Card -->
+          <div class="glass-card rounded-xl p-5 border border-white/10 space-y-2">
+            <h4 class="text-xs font-bold text-gray-300 uppercase tracking-widest pb-2 border-b border-white/10">MOTHER DETAILS</h4>
+            <div class="pt-1"><span class="text-gray-400 block mb-0.5">Mother Name</span><span class="text-white font-bold text-sm">${val(s.motherName)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Occupation</span><span class="text-white">${val(s.motherOccupation)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Office Designation</span><span class="text-white">${val(s.motherOfficeDesignation)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Annual Income</span><span class="text-white">${val(s.motherAnnualIncome)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Aadhaar</span><span class="text-white font-mono">${val(s.motherAadhaar)}</span></div>
+            <div class="flex justify-between py-1 border-b border-white/5"><span class="text-gray-400">Email</span><span class="text-white">${val(s.motherEmail)}</span></div>
+            <div class="flex justify-between py-1"><span class="text-gray-400">Mobile</span><span class="text-white">${val(s.motherMobile)}</span></div>
           </div>
         </div>
 

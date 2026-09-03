@@ -207,6 +207,13 @@ function findByKey(captured, candidates) {
 }
 
 // ─── Data Mappers ─────────────────────────────────────────────────────────────
+function cleanVal(v) {
+  if (v === null || v === undefined) return '[404]';
+  const str = String(v).trim();
+  if (str === '' || str === 'null' || str === 'undefined' || str === '-') return '[404]';
+  return str;
+}
+
 function mapProfile(raw) {
   if (!raw) return buildEmptyProfile();
 
@@ -220,75 +227,74 @@ function mapProfile(raw) {
   if (!d || typeof d !== 'object') return buildEmptyProfile();
 
   const fmtDate = (iso) => {
-    if (!iso) return '18/06/2007';
+    if (!iso) return '[404]';
     try {
-      const parts = iso.split('T')[0].split('-');
+      const parts = String(iso).split('T')[0].split('-');
       if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
     } catch (_) {}
-    return iso;
+    return cleanVal(iso);
   };
 
-  const currYear = d.CurrentYear || d.YearofStudy || d.Year || 2;
-  const acadYear = d.CurrentAcademicYear || '2026-2027';
+  const currYear = d.CurrentYear || d.YearofStudy || d.Year;
+  const acadYear = d.CurrentAcademicYear;
+  const yearDisplay = (currYear && acadYear) ? `${currYear} (${acadYear})` : cleanVal(currYear || acadYear);
 
   return {
-    name:             d.StudentName || d.NAME || d.name || 'GOWTHAM S',
-    regNo:            d.RegisterNumber || d.regno || '145111241',
-    rollNumber:       d.RollNumber || d.RollNo || '',
-    programme:        d.ProgrammeName || d.DepartmentName || d.branch || 'COMPUTER SCIENCE AND ENGINEERING',
-    department:       d.DepartmentName || d.ProgrammeName || d.branch || 'COMPUTER SCIENCE AND ENGINEERING',
-    email:            d.Email || d.StudentEmail || 'GOWTHAM.SATISH1@GMAIL.COM',
-    dob:              fmtDate(d.DateOfBirth || d.DOB),
-    mobile:           d.MobileNumber || d.StudentMobileNo || d.Mobile || '9108272695',
-    age:              String(d.Age || 19),
-    batch:            d.Batch || '2025-2029',
-    semester:         String(d.Semester || d.CurrentSemester || 3),
-    yearDisplay:      `${currYear} (${acadYear})`,
-    section:          d.SectionName || d.Section || 'E1',
-    school:           d.SchoolName || d.School || 'School of Computing',
-    photo:            d.Photo || '',
+    name:             cleanVal(d.StudentName || d.NAME || d.name),
+    regNo:            cleanVal(d.RegisterNumber || d.registerNumber || d.regno || d.RegNo),
+    rollNumber:       cleanVal(d.RollNumber || d.RollNo),
+    programme:        cleanVal(d.ProgrammeName || d.DepartmentName || d.branch || d.Branch),
+    department:       cleanVal(d.DepartmentName || d.ProgrammeName || d.branch || d.Branch),
+    email:            cleanVal(d.Email || d.StudentEmail || d.email),
+    dob:              fmtDate(d.DateOfBirth || d.DOB || d.dob),
+    mobile:           cleanVal(d.MobileNumber || d.StudentMobileNo || d.mobile || d.Mobile),
+    age:              cleanVal(d.Age || d.age),
+    batch:            cleanVal(d.Batch || d.batch),
+    semester:         cleanVal(d.Semester || d.CurrentSemester || d.semester),
+    yearDisplay:      yearDisplay,
+    section:          cleanVal(d.SectionName || d.Section || d.section),
+    school:           cleanVal(d.SchoolName || d.schoolName || d.School),
     
     // Personal details table
-    gender:           d.Gender === 1 ? 'Male' : (d.Gender === 2 ? 'Female' : (d.Gender || 'Male')),
-    bloodGroup:       d.BloodGroup || '-',
-    medicalHistory:   d.MedicalHistory || '-',
-    nativeState:      d.NativeState || d.StateName || '-',
-    height:           d.Height || '-',
-    nationality:      d.Nationality || 'Indian',
-    religion:         d.Religion || 'Hindu',
-    community:        d.Community || 'OBC/BC',
-    motherTongue:     d.MotherTongue || 'TAMIL',
-    stayedInHostel:   (d.HostelTypeId && d.HostelTypeId !== 0) || d.Hostel ? 'Yes' : 'Yes',
-    nativePlace:      d.NativePlace || '-',
-    weight:           d.Weight || '-',
-    aadhaar:          d.AadhaarNo || d.Aadhaar || '990489652642',
-    motherName:       d.MotherName || 'Buvaneswari',
-    studentMobile:    d.MobileNumber || d.StudentMobileNo || '9108272695',
-    studentEmail:     d.Email || d.StudentEmail || 'GOWTHAM.SATISH1@GMAIL.COM',
-    firstGraduate:    d.FirstGraduate === 1 ? 'Yes' : 'No',
-    extraCurricular:  d.ExtraCurricular || '-',
-    isPwd:            d.IsPWD === 1 ? 'Yes' : 'No',
+    gender:           d.Gender === 1 ? 'Male' : (d.Gender === 2 ? 'Female' : cleanVal(d.Gender)),
+    bloodGroup:       cleanVal(d.BloodGroup),
+    medicalHistory:   cleanVal(d.MedicalHistory),
+    nativeState:      cleanVal(d.NativeState || d.StateName),
+    height:           cleanVal(d.Height),
+    nationality:      cleanVal(d.Nationality),
+    religion:         cleanVal(d.Religion),
+    community:        cleanVal(d.Community),
+    motherTongue:     cleanVal(d.MotherTongue),
+    stayedInHostel:   (d.HostelTypeId !== undefined && d.HostelTypeId !== 0) || d.Hostel ? 'Yes' : (d.HostelTypeId === 0 ? 'No' : '[404]'),
+    nativePlace:      cleanVal(d.NativePlace),
+    weight:           cleanVal(d.Weight),
+    aadhaar:          cleanVal(d.AadhaarNo || d.Aadhaar || d.aadhaarNo),
+    motherName:       cleanVal(d.MotherName),
+    studentMobile:    cleanVal(d.MobileNumber || d.StudentMobileNo || d.Mobile),
+    studentEmail:     cleanVal(d.Email || d.StudentEmail || d.email),
+    firstGraduate:    d.FirstGraduate === 1 ? 'Yes' : (d.FirstGraduate === 0 ? 'No' : cleanVal(d.FirstGraduate)),
+    extraCurricular:  cleanVal(d.ExtraCurricular),
+    isPwd:            d.IsPWD === 1 ? 'Yes' : (d.IsPWD === 0 ? 'No' : cleanVal(d.IsPWD)),
 
     // Father details
-    fatherPhoto:      d.FatherPhoto || '',
-    fatherName:       d.FatherName || 'SATISH P',
-    fatherSubtitle:   d.FatherMobileNo || '9845902695',
-    fatherOccupation: (d.FatherOccupation && d.FatherOccupation !== '3') ? d.FatherOccupation : '-',
-    fatherOfficeDesignation: d.FatherOfficeDesignation || '-',
-    fatherAnnualIncome: d.FatherAnnualIncome || '-',
-    fatherAadhaar:    d.FatherAadhar || d.FatherAadhaarNo || '560397351225',
-    fatherEmail:      d.FatherOfficeEmail || d.FatherEmail || '-',
-    fatherMobile:     d.FatherMobileNo || '-',
+    fatherName:       cleanVal(d.FatherName),
+    fatherSubtitle:   cleanVal(d.FatherMobileNo || d.FatherMobile),
+    fatherOccupation: cleanVal(d.FatherOccupation && d.FatherOccupation !== '3' ? d.FatherOccupation : null),
+    fatherOfficeDesignation: cleanVal(d.FatherOfficeDesignation),
+    fatherAnnualIncome: cleanVal(d.FatherAnnualIncome),
+    fatherAadhaar:    cleanVal(d.FatherAadhar || d.FatherAadhaarNo),
+    fatherEmail:      cleanVal(d.FatherOfficeEmail || d.FatherEmail),
+    fatherMobile:     cleanVal(d.FatherMobileNo || d.FatherMobile),
 
     // Mother details
-    motherPhoto:      d.MotherPhoto || '',
-    motherSubtitle:   d.MotherMobileNo || '-',
-    motherOccupation: d.MotherOccupation || '-',
-    motherOfficeDesignation: d.MotherOfficeDesignation || '-',
-    motherAnnualIncome: d.MotherAnnualIncome || '-',
-    motherAadhaar:    d.MotherAadhar || d.MotherAadhaarNo || '-',
-    motherEmail:      d.MotherOfficeEmail || d.MotherEmail || '-',
-    motherMobile:     d.MotherMobileNo || '-',
+    motherName:       cleanVal(d.MotherName),
+    motherSubtitle:   cleanVal(d.MotherMobileNo || d.MotherMobile),
+    motherOccupation: cleanVal(d.MotherOccupation),
+    motherOfficeDesignation: cleanVal(d.MotherOfficeDesignation),
+    motherAnnualIncome: cleanVal(d.MotherAnnualIncome),
+    motherAadhaar:    cleanVal(d.MotherAadhar || d.MotherAadhaarNo),
+    motherEmail:      cleanVal(d.MotherOfficeEmail || d.MotherEmail),
+    motherMobile:     cleanVal(d.MotherMobileNo || d.MotherMobile),
 
     // Sibling details
     siblings:         []
