@@ -1,0 +1,143 @@
+/* Custom CSS Utilities for Obsidian Scholar Theme */
+
+:root {
+  --bg-dark: #0f131c;
+  --surface-dim: #0f131c;
+  --surface-container: #1c2028;
+  --surface-container-high: #262a33;
+  --primary-cobalt: #2563eb;
+  --primary-light: #b4c5ff;
+  --text-main: #dfe2ee;
+  --text-muted: #c3c6d7;
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(37, 99, 235, 0.4);
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  overscroll-behavior: none;
+}
+
+h1, h2, h3, h4, .font-headline {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Custom Scrollbar & Hiding Utilities */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 19, 28, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.5);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Mobile Touch Optimization */
+@media (max-width: 640px) {
+  .glass-card {
+    padding: 1rem !important;
+  }
+}
+
+/* Glassmorphism Panels */
+.glass-card {
+  background: rgba(28, 32, 40, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+}
+
+.glass-nav {
+  background: rgba(15, 19, 28, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.glass-input {
+  background: rgba(24, 28, 36, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.glass-input:focus-within {
+  border-color: var(--primary-cobalt);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3);
+}
+
+/* Glowing Elements */
+.cobalt-glow {
+  box-shadow: 0 0 20px -3px rgba(37, 99, 235, 0.4);
+}
+
+.cobalt-glow-sm {
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.25);
+}
+
+/* Radial Progress Ring */
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.8s ease-in-out;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* View Animations */
+.tab-content {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Badge Chips */
+.badge-pill {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.badge-pass {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-info {
+  background: rgba(37, 99, 235, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}

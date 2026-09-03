@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sathyabama Student Portal</title>
+
+  <!-- Typography & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/>
+
+  <!-- Styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-[#0f131c] text-[#dfe2ee] min-h-screen flex flex-col justify-between relative selection:bg-blue-600 selection:text-white overflow-x-hidden">
+
+  <!-- Background WebGL Shader Canvas -->
+  <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+    <canvas id="shader-canvas" class="absolute inset-0 w-full h-full"></canvas>
+    <div class="absolute inset-0 bg-[#0f131c]/60 backdrop-blur-[1px]"></div>
+  </div>
+
+  <!-- Global Header Bar -->
+  <header class="relative z-20 w-full glass-nav px-4 md:px-8 py-4">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <!-- University Branding -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 cobalt-glow-sm">
+          <span class="material-symbols-outlined text-xl">school</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="font-headline text-lg font-bold text-white leading-none tracking-tight">SATHYABAMA</span>
+          <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-0.5">Institute of Science and Technology</span>
+        </div>
+      </div>
+
+      <!-- Action Status Bar -->
+      <div class="flex items-center gap-4">
+        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-blue-300">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Portal Proxy Connected</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-4 md:px-8 py-8">
+    
+    <!-- LOGIN SECTION -->
+    <section id="loginSection" class="w-full max-w-[460px] my-auto">
+      <div class="glass-card rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+        <div class="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-blue-500/50 to-transparent"></div>
+        
+        <div class="text-center mb-6">
+          <div class="inline-flex p-3 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 mb-3 cobalt-glow-sm">
+            <span class="material-symbols-outlined text-2xl">account_circle</span>
+          </div>
+          <h1 class="text-2xl font-bold text-white tracking-tight mb-1">Student Portal Login</h1>
+          <p class="text-xs text-gray-400">Enter your official credentials to access profile, attendance, and exam grades.</p>
+        </div>
+
+        <div id="statusMessage" class="hidden"></div>
+
+        <form id="loginForm" class="space-y-4" onsubmit="handleLoginSubmit(event)">
+          <div>
+            <label for="regNumber" class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">Register Number *</label>
+            <div class="relative flex items-center glass-input rounded-xl overflow-hidden">
+              <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">person</span>
+              <input type="text" id="regNumber" name="regNumber" placeholder="e.g., 14511241" required
+                     class="w-full bg-transparent pl-10 pr-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
+            </div>
+          </div>
+
+          <div>
+            <label for="password" class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">Password *</label>
+            <div class="relative flex items-center glass-input rounded-xl overflow-hidden">
+              <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">lock</span>
+              <input type="password" id="password" name="password" placeholder="••••••••" required
+                     class="w-full bg-transparent pl-10 pr-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
+              <input type="checkbox" id="rememberMe" checked class="w-4 h-4 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900" />
+              <span>Remember login credentials locally</span>
+            </label>
+          </div>
+
+          <div class="pt-2">
+            <button type="submit" id="submitBtn" 
+                    class="w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
+              <span class="material-symbols-outlined text-lg">login</span>
+              <span>Sign In to Dashboard</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- DASHBOARD SECTION -->
+    <section id="dashboardSection" class="w-full max-w-7xl hidden my-auto space-y-6">
+      
+      <!-- Top Student Bar -->
+      <div class="glass-card rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-4 text-center md:text-left">
+          <div id="avatarInitials" class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white font-bold text-xl flex items-center justify-center shadow-lg shadow-blue-600/30">
+            GS
+          </div>
+          <div>
+            <h2 id="headerStudentName" class="text-xl font-bold text-white tracking-tight">GOWTHAM S</h2>
+            <div class="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs text-blue-300 mt-0.5">
+              <span id="headerRegNo" class="font-semibold">REG NO: 14511241</span>
+              <span>•</span>
+              <span id="headerBranch">COMPUTER SCIENCE AND ENGINEERING • SEMESTER 3</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button onclick="handleSignOut()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1.5 transition-all">
+            <span class="material-symbols-outlined text-sm">logout</span>
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Bar Tabs (Scrollable on mobile) -->
+      <div class="glass-card p-2 rounded-2xl flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
+        <button id="tab-btn-profile" onclick="setTab('profile')"
+                class="px-4 py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white shadow-lg shadow-blue-500/25 flex items-center gap-2 transition-all flex-shrink-0">
+          <span class="material-symbols-outlined text-lg">person</span> Student Profile
+        </button>
+        <button id="tab-btn-attendance" onclick="setTab('attendance')"
+                class="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-2 transition-all flex-shrink-0">
+          <span class="material-symbols-outlined text-lg">fact_check</span> Attendance Tracker
+        </button>
+        <button id="tab-btn-cae" onclick="setTab('cae')"
+                class="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-2 transition-all flex-shrink-0">
+          <span class="material-symbols-outlined text-lg">grade</span> CAE & Exam Results
+        </button>
+        <button id="tab-btn-timetable" onclick="setTab('timetable')"
+                class="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-2 transition-all flex-shrink-0">
+          <span class="material-symbols-outlined text-lg">calendar_month</span> Class Timetable
+        </button>
+      </div>
+
+      <!-- Tab View Content Host -->
+      <div id="dashboardTabContent"></div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="relative z-10 w-full py-4 text-center text-xs text-gray-500 border-t border-white/5">
+    Sathyabama Institute of Science and Technology • Modern Portal Wrapper v1.0
+  </footer>
+
+  <!-- Core Scripts -->
+  <script src="portal-api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

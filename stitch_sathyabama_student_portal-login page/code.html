@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"surface-container-highest":"#31353e","primary":"#b4c5ff","surface-container-low":"#181c24","background":"#0f131c","tertiary-fixed-dim":"#c0c1ff","on-tertiary":"#1000a9","surface-variant":"#31353e","on-error":"#690005","surface-container-high":"#262a33","inverse-primary":"#0053db","tertiary-fixed":"#e1e0ff","outline":"#8d90a0","inverse-surface":"#dfe2ee","on-secondary-fixed-variant":"#004c69","on-secondary-container":"#00374d","primary-container":"#2563eb","on-surface":"#dfe2ee","surface-tint":"#b4c5ff","on-error-container":"#ffdad6","on-tertiary-fixed":"#07006c","on-background":"#dfe2ee","primary-fixed-dim":"#b4c5ff","outline-variant":"#434655","surface-container":"#1c2028","surface-container-lowest":"#0a0e16","secondary":"#7bd0ff","on-primary-container":"#eeefff","primary-fixed":"#dbe1ff","error-container":"#93000a","secondary-fixed-dim":"#7bd0ff","on-primary":"#002a78","on-tertiary-fixed-variant":"#2f2ebe","on-primary-fixed-variant":"#003ea8","error":"#ffb4ab","on-surface-variant":"#c3c6d7","inverse-on-surface":"#2c3039","on-tertiary-container":"#f1eeff","surface-dim":"#0f131c","surface":"#0f131c","on-secondary":"#00354a","on-primary-fixed":"#00174b","secondary-fixed":"#c4e7ff","surface-bright":"#353942","secondary-container":"#00a6e0","tertiary":"#c0c1ff","on-secondary-fixed":"#001e2c","tertiary-container":"#585be6"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"space-xl":"2rem","space-xs":"0.5rem","card-padding-spacious":"2.25rem","space-md":"1rem","card-padding-compact":"1.25rem","space-2xl":"3rem","space-2xs":"0.25rem","gutter-mobile":"1rem","space-lg":"1.5rem","space-sm":"0.75rem","gutter-desktop":"1.5rem","space-3xl":"4rem"},"fontFamily":{"headline-xl-mobile":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"code-sm":["monospace"],"headline-xl":["Plus Jakarta Sans"],"headline-sm":["Plus Jakarta Sans"],"body-sm":["Inter"],"headline-md":["Plus Jakarta Sans"],"headline-2xl":["Plus Jakarta Sans"],"label-md":["Inter"],"body-lg":["Inter"],"headline-2xl-mobile":["Plus Jakarta Sans"],"body-md":["Inter"],"label-lg":["Inter"],"label-sm":["Inter"]},"fontSize":{"headline-xl-mobile":["26px",{"lineHeight":"34px","letterSpacing":"-0.01em","fontWeight":"600"}],"headline-lg":["28px",{"lineHeight":"36px","letterSpacing":"-0.015em","fontWeight":"600"}],"code-sm":["12px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"400"}],"headline-xl":["36px",{"lineHeight":"44px","letterSpacing":"-0.02em","fontWeight":"600"}],"headline-sm":["18px",{"lineHeight":"26px","letterSpacing":"0em","fontWeight":"600"}],"body-sm":["13px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"400"}],"headline-md":["22px",{"lineHeight":"30px","letterSpacing":"-0.01em","fontWeight":"600"}],"headline-2xl":["48px",{"lineHeight":"56px","letterSpacing":"-0.02em","fontWeight":"700"}],"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"500"}],"body-lg":["16px",{"lineHeight":"26px","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-2xl-mobile":["32px",{"lineHeight":"40px","letterSpacing":"-0.015em","fontWeight":"700"}],"body-md":["14px",{"lineHeight":"22px","letterSpacing":"0em","fontWeight":"400"}],"label-lg":["14px",{"lineHeight":"20px","letterSpacing":"0.01em","fontWeight":"500"}],"label-sm":["11px",{"lineHeight":"14px","letterSpacing":"0.04em","fontWeight":"600"}]}}}}</script></head><body class="bg-background text-on-surface min-h-screen flex flex-col justify-between relative overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container"><div class="fixed inset-0 pointer-events-none z-0 overflow-hidden"><!-- STITCH_SHADER_START:ANIMATION_5 class="absolute inset-0 w-full h-full pointer-events-none" -->
+<div class="absolute inset-0 w-full h-full pointer-events-none" style="display:block;">
+<canvas id="shader-canvas-ANIMATION_5" style="display:block;width:100%;height:100%"></canvas>
+<script>
+(function() {
+  const canvas = document.getElementById('shader-canvas-ANIMATION_5');
+
+  // Sync the WebGL drawing-buffer size with the CSS-driven layout size.
+  // This fires on initial layout and whenever the element is resized.
+  function syncSize() {
+    const w = canvas.clientWidth  || 1280;
+    const h = canvas.clientHeight || 720;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width  = w;
+      canvas.height = h;
+    }
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(syncSize).observe(canvas);
+  }
+  syncSize();
+
+  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) return;
+  const vs = `attribute vec2 a_position;
+varying vec2 v_texCoord;
+void main() {
+  v_texCoord = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+  const fs = `precision highp float;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform vec2 u_mouse;
+
+#define TAU 6.28318530718
+#define MAX_THREADS 10
+
+float glow(float x, float str, float dist) {
+  return dist / pow(max(x, 1e-4), str);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  
+  // WebThreads parameters
+  float uSpeed = 0.2;
+  float uThreadCount = 6.0;
+  float uFrequency = 5.0;
+  float uSpread = 0.18;
+  float uTaper = 1.0;
+  float uPosition = 0.5;
+  float uFanMode = 0.0; // center
+  float uGlow = 0.02;
+  float uFalloff = 0.6;
+  float uThickness = 1.1;
+  float uBrightness = 0.7;
+  float uOpacity = 1.0;
+  float uMirror = 1.0;
+  float uShimmer = 0.0;
+  float uGrain = 1.0;
+  float uGrainIntensity = 0.05;
+  
+  // Colors: color1="#5227FF", color2="#FF9FFC", color3="#FFFFFF"
+  vec3 uColor1 = vec3(0.3215, 0.1529, 1.0);
+  vec3 uColor2 = vec3(1.0, 0.6235, 0.9882);
+  vec3 uColor3 = vec3(1.0, 1.0, 1.0);
+  
+  float uMouseStrength = 0.3;
+  float uEnableMouse = 1.0;
+
+  float n = max(uThreadCount, 1.0);
+  float pinchX = uFanMode < 0.5 ? 0.5 : (uFanMode < 1.5 ? 0.0 : 1.0);
+  
+  // Normalized mouse coordinates
+  vec2 normMouse = u_mouse / u_resolution;
+  float mouseActive = (length(u_mouse) > 0.0) ? 1.0 : 0.0;
+  if (uEnableMouse > 0.5) {
+    pinchX = mix(pinchX, normMouse.x, clamp(uMouseStrength, 0.0, 1.0) * mouseActive);
+  }
+
+  float spreadDx = uSpread * abs(uv.x - pinchX);
+  float baseT = u_time * uSpeed;
+  float tauOverN = TAU / n;
+  float mirror = uMirror > 0.5 ? sign(pinchX - uv.x) : 1.0;
+  bool doShimmer = uShimmer > 0.5;
+  float shimmerT = u_time * 1.7;
+  float invThickness = 1.0 / max(uThickness, 0.01);
+  float xFreq = uv.x * uFrequency;
+  float yOff = uv.y - uPosition;
+  float ciScale = n > 1.0 ? 1.0 / (n - 1.0) : 0.0;
+  
+  vec3 col = vec3(0.0);
+  float gsum = 0.0;
+  
+  for (int idx = 0; idx < MAX_THREADS; idx++) {
+    float i = float(idx);
+    if (i >= n) break;
+    float amplitude = spreadDx * (1.0 + i * uTaper);
+    float shimmer = doShimmer ? sin(shimmerT + i * 1.3) * 0.35 : 0.0;
+    float phase = (baseT + i * tauOverN) * mirror + shimmer;
+    float sdf = abs(yOff + sin(xFreq + phase) * amplitude) * invThickness;
+    float g = glow(sdf, uFalloff, uGlow);
+    float ci = i * ciScale;
+    vec3 threadCol = mix(uColor1, uColor2, ci);
+    col += g * threadCol;
+    gsum += g;
+  }
+  
+  float coreAmt = smoothstep(0.5, 2.2, gsum);
+  col = mix(col, uColor3 * gsum, coreAmt * 0.5);
+  
+  float bright = uBrightness;
+  if (uEnableMouse > 0.5) {
+    vec2 md = uv - normMouse;
+    float d2 = dot(md, md);
+    bright += clamp(uMouseStrength, 0.0, 1.0) * mouseActive * exp(-d2 * 6.0) * 0.6;
+  }
+  col *= bright;
+  
+  float alpha = clamp(gsum, 0.0, 1.0) * uOpacity;
+  vec3 outRgb = col * alpha;
+  
+  if (uGrain > 0.5) {
+    float gv = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233)) + u_time) * 43758.5453) - 0.5) * uGrainIntensity;
+    outRgb = clamp(outRgb + gv, 0.0, 1.0);
+    alpha = clamp(alpha + gv, 0.0, 1.0);
+  }
+  
+  // Blend over dark background
+  vec3 bgCol = vec3(0.05, 0.07, 0.11);
+  vec3 finalRgb = mix(bgCol, outRgb + bgCol * (1.0 - alpha), alpha);
+  gl_FragColor = vec4(finalRgb, 1.0);
+}
+`;
+  function cs(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, cs(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, cs(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const pos = gl.getAttribLocation(prog, 'a_position');
+  gl.enableVertexAttribArray(pos);
+  gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+  const uTime = gl.getUniformLocation(prog, 'u_time');
+  const uRes = gl.getUniformLocation(prog, 'u_resolution');
+  const uMouse = gl.getUniformLocation(prog, 'u_mouse');
+
+  // u_mouse is in pixel coordinates matching u_resolution (ShaderToy convention).
+  // Shaders that need normalized coords should use: u_mouse / u_resolution.
+  let mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+  window.addEventListener('mousemove', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width && rect.height) {
+      const nx = (event.clientX - rect.left) / rect.width;
+      const ny = 1.0 - (event.clientY - rect.top) / rect.height;
+      mouse.x = nx * canvas.width;
+      mouse.y = ny * canvas.height;
+    }
+  });
+
+  function render(t) {
+    if (typeof ResizeObserver === 'undefined') syncSize();
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    if (uTime) gl.uniform1f(uTime, t * 0.001);
+    if (uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
+    if (uMouse) gl.uniform2f(uMouse, mouse.x, mouse.y);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(render);
+  }
+  render(0);
+})();
+</script>
+</div>
+<!-- STITCH_SHADER_END:ANIMATION_5 --><div class="absolute inset-0 bg-background/40 backdrop-blur-[1px] pointer-events-none"></div></div><header class="relative z-10 w-full px-gutter-mobile lg:px-gutter-desktop py-space-md"><div class="max-w-7xl mx-auto flex items-center justify-between"><div class="flex items-center gap-space-sm"><div class="w-8 h-8 rounded-lg bg-surface-container-high/80 backdrop-blur-md flex items-center justify-center text-primary shadow-[0_0_12px_rgba(37,99,235,0.25)] border border-outline-variant/30"><span class="material-symbols-outlined text-body-lg">school</span></div><div class="flex flex-col"><span class="font-headline-sm text-headline-sm tracking-tight text-on-surface leading-none drop-shadow-sm">SATHYABAMA</span><span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Institute of Science and Technology</span></div></div><div class="flex items-center gap-space-md"><div class="hidden sm:flex items-center gap-1 text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer py-1 px-space-xs rounded-lg hover:bg-surface-container-high/60 backdrop-blur-sm"><span class="material-symbols-outlined text-body-md">language</span><span class="font-label-sm text-label-sm uppercase">EN</span></div></div></div></header><main class="relative z-10 flex-1 flex items-center justify-center w-full px-gutter-mobile lg:px-gutter-desktop py-space-xl"><div class="flex flex-col w-full items-center justify-center py-space-md sm:py-space-xl relative">
+<div class="absolute -top-16 w-80 h-80 bg-primary-container/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
+<div class="absolute -bottom-16 w-64 h-64 bg-secondary-container/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
+<div class="w-full max-w-[480px] px-space-xs sm:px-0">
+<div class="relative rounded-xl bg-surface-container/80 backdrop-blur-2xl p-space-lg sm:p-card-padding-spacious shadow-[0_24px_50px_-12px_rgba(0,0,0,0.85)] border border-outline-variant/40">
+<div class="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
+<div class="flex flex-col items-center text-center mb-space-lg">
+<div class="flex flex-col items-center justify-center mb-space-md"><span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight uppercase text-center">Sathyabama Institute of Science and Technology</span><span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mt-1">(Deemed to be University)</span></div>
+<h1 class="font-headline-md text-headline-md text-on-surface tracking-tight mb-space-2xs">
+          Student Portal Login
+        </h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant max-w-xs">
+          Enter your university credentials to access attendance, results, and fee accounts.
+        </p>
+</div>
+<form class="space-y-space-md" id="loginForm" onsubmit="event.preventDefault(); handleLogin();">
+<div class="space-y-1.5">
+<div class="flex justify-between items-center">
+<label class="font-label-lg text-label-lg text-on-surface flex items-center gap-1.5" for="regNumber">
+<span class="">Register Number</span>
+<span class="text-error font-body-sm">*</span>
+</label>
+</div>
+<div class="relative flex items-center rounded-lg bg-surface-container-low/90 backdrop-blur-md border border-outline-variant/30 shadow-inner transition-all duration-200 focus-within:ring-2 focus-within:ring-primary-container focus-within:border-transparent">
+<div class="absolute left-space-md flex items-center pointer-events-none text-outline transition-colors duration-150">
+<span class="material-symbols-outlined text-body-lg">person</span>
+</div>
+<input autocomplete="username" class="w-full bg-transparent pl-11 pr-space-md py-3.5 font-body-md text-body-md text-on-surface placeholder:text-outline/60 focus:outline-none" id="regNumber" maxlength="10" name="regNumber" placeholder="e.g., 41110001" required="" type="text"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<div class="flex justify-between items-center">
+<label class="font-label-lg text-label-lg text-on-surface flex items-center gap-1.5" for="password">
+<span class="">Password</span>
+<span class="text-error font-body-sm">*</span>
+</label>
+<a class="font-label-sm text-label-sm text-secondary hover:text-primary transition-colors focus:outline-none" data-path="password-assistance" href="#">
+              Forgot Password?
+            </a>
+</div>
+<div class="relative flex items-center rounded-lg bg-surface-container-low/90 backdrop-blur-md border border-outline-variant/30 shadow-inner transition-all duration-200 focus-within:ring-2 focus-within:ring-primary-container focus-within:border-transparent">
+<div class="absolute left-space-md flex items-center pointer-events-none text-outline">
+<span class="material-symbols-outlined text-body-lg">lock</span>
+</div>
+<input autocomplete="current-password" class="w-full bg-transparent pl-11 pr-11 py-3.5 font-body-md text-body-md text-on-surface placeholder:text-outline/60 focus:outline-none" id="password" name="password" placeholder="••••••••" required="" type="password"/>
+<button aria-label="Toggle password visibility" class="absolute right-space-sm p-1 text-outline hover:text-on-surface transition-colors focus:outline-none" id="togglePassword" onclick="togglePasswordVisibility()" type="button">
+<span class="material-symbols-outlined text-body-lg" id="eyeIcon">visibility</span>
+</button>
+</div>
+</div>
+<div class="hidden rounded-lg p-space-sm text-center" id="statusMessage"></div>
+<div class="pt-space-xs">
+<button class="relative w-full group overflow-hidden rounded-lg bg-primary-container py-3.5 px-space-lg text-center font-label-lg text-label-lg text-on-primary-container font-semibold transition-all duration-200 hover:bg-inverse-primary hover:shadow-[0_8px_20px_-4px_rgba(37,99,235,0.45)] active:translate-y-0 shadow-md flex items-center justify-center gap-space-xs" id="submitBtn" type="submit">
+<span class="material-symbols-outlined text-body-lg transition-transform group-hover:translate-x-0.5">login</span>
+<span class="">Sign In to Dashboard</span>
+</button>
+</div>
+</form>
+</div>
+</div>
+</div>
+<script>
+  function togglePasswordVisibility() {
+    const passwordInput = document.getElementById('password');
+    const eyeIcon = document.getElementById('eyeIcon');
+    if (passwordInput.type === 'password') {
+      passwordInput.type = 'text';
+      eyeIcon.textContent = 'visibility_off';
+    } else {
+      passwordInput.type = 'password';
+      eyeIcon.textContent = 'visibility';
+    }
+  }
+
+  function handleLogin() {
+    const regNum = document.getElementById('regNumber').value.trim();
+    const password = document.getElementById('password').value;
+    const submitBtn = document.getElementById('submitBtn');
+    const statusMessage = document.getElementById('statusMessage');
+
+    if (!regNum || !password) {
+      statusMessage.className = "rounded-lg p-space-sm text-center bg-error-container/30 text-error font-body-sm text-body-sm block";
+      statusMessage.textContent = "Please provide both Register Number and Password.";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.classList.add('opacity-75', 'cursor-not-allowed');
+    submitBtn.innerHTML = `
+      <span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>
+      <span>Authenticating SIS...</span>
+    `;
+
+    setTimeout(() => {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+      submitBtn.innerHTML = `
+        <span class="material-symbols-outlined text-body-lg">login</span>
+        <span>Sign In to Dashboard</span>
+      `;
+      statusMessage.className = "rounded-lg p-space-sm text-center bg-surface-container-high text-primary font-body-sm text-body-sm block";
+      statusMessage.textContent = "Authentication simulated: Student ID " + regNum + " authorized. Redirecting...";
+    }, 1200);
+  }
+</script></main>
+</body></html>
