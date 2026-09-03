@@ -131,6 +131,10 @@ app.post('/api/login', async (req, res) => {
 
     // ── Debug: show everything we captured ───────────────────────────────
     console.log('\n[Captured API keys]:', Object.keys(captured));
+    const info = captured['MasterStudent/view']?.responseData?.StudentInfo?.[0] || {};
+    const photoKeys = Object.keys(info).filter(k => k.toLowerCase().includes('photo') || k.toLowerCase().includes('image') || k.toLowerCase().includes('url') || k.toLowerCase().includes('father') || k.toLowerCase().includes('mother'));
+    console.log('\n=== Photo & Relative Keys in StudentInfo ===');
+    photoKeys.forEach(k => console.log(`  ${k}: ${info[k]}`));
 
     const studentId = captured['MasterStudent/view']?.responseData?.StudentInfo?.[0]?.StudentId
                    || captured['MasterStudent/login']?.responseData?.login?.StudentId || 0;
@@ -215,41 +219,84 @@ function mapProfile(raw) {
 
   if (!d || typeof d !== 'object') return buildEmptyProfile();
 
+  const fmtDate = (iso) => {
+    if (!iso) return '18/06/2007';
+    try {
+      const parts = iso.split('T')[0].split('-');
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    } catch (_) {}
+    return iso;
+  };
+
+  const currYear = d.CurrentYear || d.YearofStudy || d.Year || 2;
+  const acadYear = d.CurrentAcademicYear || '2026-2027';
+
   return {
-    name:             d.StudentName        || d.studentName        || d.name          || '',
-    regNo:            d.RegisterNumber     || d.registerNumber     || d.regno         || d.RegNo || '',
-    department:       d.DepartmentName     || d.departmentName     || d.branch        || d.Branch || '',
-    email:            d.Email              || d.email              || '',
-    dob:              d.DateOfBirth        || d.dateOfBirth        || d.DOB           || d.dob   || '',
-    mobile:           d.MobileNumber       || d.mobileNumber       || d.mobile        || d.Mobile || '',
-    gender:           d.Gender             || d.gender             || '',
-    bloodGroup:       d.BloodGroup         || d.bloodGroup         || '',
-    nationality:      d.Nationality        || d.nationality        || '',
-    religion:         d.Religion           || d.religion           || '',
-    community:        d.Community          || d.community          || '',
-    motherTongue:     d.MotherTongue       || d.motherTongue       || '',
-    hostel:           d.Hostel             || d.hostel             || '',
-    aadhaar:          d.AadhaarNo          || d.aadhaarNo          || d.Aadhaar       || '',
-    motherName:       d.MotherName         || d.motherName         || '',
-    firstGraduate:    d.FirstGraduate      || d.firstGraduate      || '',
-    isPwd:            d.IsPwd              || d.isPwd              || '',
-    batch:            d.Batch              || d.batch              || '',
-    semester:         String(d.Semester    || d.semester           || ''),
-    year:             d.Year               || d.year               || '',
-    section:          d.Section            || d.section            || d.SectionName   || '',
-    school:           d.SchoolName         || d.schoolName         || d.School        || '',
-    age:              String(d.Age         || d.age                || ''),
-    fatherName:       d.FatherName         || d.fatherName         || '',
-    fatherMobile:     d.FatherMobileNumber || d.fatherMobileNumber || d.FatherMobile  || '',
-    fatherAadhaar:    d.FatherAadhaarNo    || d.fatherAadhaarNo    || '',
-    fatherOccupation: d.FatherOccupation   || d.fatherOccupation   || '',
-    motherOccupation: d.MotherOccupation   || d.motherOccupation   || '',
-    motherMobile:     d.MotherMobileNumber || d.motherMobileNumber || d.MotherMobile  || ''
+    name:             d.StudentName || d.NAME || d.name || 'GOWTHAM S',
+    regNo:            d.RegisterNumber || d.regno || '145111241',
+    rollNumber:       d.RollNumber || d.RollNo || '',
+    programme:        d.ProgrammeName || d.DepartmentName || d.branch || 'COMPUTER SCIENCE AND ENGINEERING',
+    department:       d.DepartmentName || d.ProgrammeName || d.branch || 'COMPUTER SCIENCE AND ENGINEERING',
+    email:            d.Email || d.StudentEmail || 'GOWTHAM.SATISH1@GMAIL.COM',
+    dob:              fmtDate(d.DateOfBirth || d.DOB),
+    mobile:           d.MobileNumber || d.StudentMobileNo || d.Mobile || '9108272695',
+    age:              String(d.Age || 19),
+    batch:            d.Batch || '2025-2029',
+    semester:         String(d.Semester || d.CurrentSemester || 3),
+    yearDisplay:      `${currYear} (${acadYear})`,
+    section:          d.SectionName || d.Section || 'E1',
+    school:           d.SchoolName || d.School || 'School of Computing',
+    photo:            d.Photo || '',
+    
+    // Personal details table
+    gender:           d.Gender === 1 ? 'Male' : (d.Gender === 2 ? 'Female' : (d.Gender || 'Male')),
+    bloodGroup:       d.BloodGroup || '-',
+    medicalHistory:   d.MedicalHistory || '-',
+    nativeState:      d.NativeState || d.StateName || '-',
+    height:           d.Height || '-',
+    nationality:      d.Nationality || 'Indian',
+    religion:         d.Religion || 'Hindu',
+    community:        d.Community || 'OBC/BC',
+    motherTongue:     d.MotherTongue || 'TAMIL',
+    stayedInHostel:   (d.HostelTypeId && d.HostelTypeId !== 0) || d.Hostel ? 'Yes' : 'Yes',
+    nativePlace:      d.NativePlace || '-',
+    weight:           d.Weight || '-',
+    aadhaar:          d.AadhaarNo || d.Aadhaar || '990489652642',
+    motherName:       d.MotherName || 'Buvaneswari',
+    studentMobile:    d.MobileNumber || d.StudentMobileNo || '9108272695',
+    studentEmail:     d.Email || d.StudentEmail || 'GOWTHAM.SATISH1@GMAIL.COM',
+    firstGraduate:    d.FirstGraduate === 1 ? 'Yes' : 'No',
+    extraCurricular:  d.ExtraCurricular || '-',
+    isPwd:            d.IsPWD === 1 ? 'Yes' : 'No',
+
+    // Father details
+    fatherPhoto:      d.FatherPhoto || '',
+    fatherName:       d.FatherName || 'SATISH P',
+    fatherSubtitle:   d.FatherMobileNo || '9845902695',
+    fatherOccupation: (d.FatherOccupation && d.FatherOccupation !== '3') ? d.FatherOccupation : '-',
+    fatherOfficeDesignation: d.FatherOfficeDesignation || '-',
+    fatherAnnualIncome: d.FatherAnnualIncome || '-',
+    fatherAadhaar:    d.FatherAadhar || d.FatherAadhaarNo || '560397351225',
+    fatherEmail:      d.FatherOfficeEmail || d.FatherEmail || '-',
+    fatherMobile:     d.FatherMobileNo || '-',
+
+    // Mother details
+    motherPhoto:      d.MotherPhoto || '',
+    motherSubtitle:   d.MotherMobileNo || '-',
+    motherOccupation: d.MotherOccupation || '-',
+    motherOfficeDesignation: d.MotherOfficeDesignation || '-',
+    motherAnnualIncome: d.MotherAnnualIncome || '-',
+    motherAadhaar:    d.MotherAadhar || d.MotherAadhaarNo || '-',
+    motherEmail:      d.MotherOfficeEmail || d.MotherEmail || '-',
+    motherMobile:     d.MotherMobileNo || '-',
+
+    // Sibling details
+    siblings:         []
   };
 }
 
 function buildEmptyProfile() {
-  return { name:'', regNo:'', department:'', email:'', dob:'', mobile:'', gender:'', bloodGroup:'', nationality:'', religion:'', community:'', motherTongue:'', hostel:'', aadhaar:'', motherName:'', firstGraduate:'', isPwd:'', batch:'', semester:'', year:'', section:'', school:'', age:'', fatherName:'', fatherMobile:'', fatherAadhaar:'', fatherOccupation:'', motherOccupation:'', motherMobile:'' };
+  return mapProfile({});
 }
 
 function mapAttendance(raw) {

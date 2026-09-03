@@ -138,62 +138,141 @@ function setTimetableDay(day) { appState.timetableDay = day; setTab('timetable')
 // ── Profile Tab ───────────────────────────────────────────────────────────────
 function renderProfile() {
   const s = appState.data.studentDetails;
-  const row = (label, val) => val ? `<div class="flex justify-between items-center py-2.5 border-b border-white/5"><span class="text-gray-400 text-xs">${label}</span><span class="text-white font-semibold text-sm text-right max-w-[60%]">${val}</span></div>` : '';
   return `
   <div class="tab-content space-y-6">
-    <div class="glass-card rounded-2xl p-6 relative overflow-hidden">
-      <div class="absolute right-0 top-0 w-80 h-80 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
-      <div class="flex flex-col md:flex-row items-center md:items-start gap-6">
-        <div class="w-24 h-24 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-3xl font-bold text-white shadow-xl flex-shrink-0">
-          ${s.name.split(' ').map(n=>n[0]).join('').slice(0,2)}
-        </div>
-        <div class="flex-1 text-center md:text-left space-y-2">
-          <div class="flex flex-wrap items-center justify-center md:justify-start gap-2">
-            <h2 class="text-2xl font-bold text-white">${s.name}</h2>
-            ${s.section ? `<span class="badge-pill badge-info">Section ${s.section}</span>` : ''}
-            ${s.hostel   ? `<span class="badge-pill badge-pass">Hostel: ${s.hostel}</span>` : ''}
-          </div>
-          <p class="text-blue-300 text-sm font-medium">${s.department}</p>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            ${[['Register No', s.regNo],['Batch',s.batch],['Semester',`Sem ${s.semester} (${s.year})`],['School',s.school]]
-              .filter(([,v])=>v).map(([l,v])=>`
-              <div class="bg-white/5 p-2.5 rounded-lg border border-white/5">
-                <span class="text-gray-400 block text-[10px] uppercase tracking-wider">${l}</span>
-                <span class="font-semibold text-white text-sm">${v}</span>
-              </div>`).join('')}
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- LEFT SIDEBAR CARD -->
+      <div class="lg:col-span-4 glass-card rounded-2xl p-6 flex flex-col items-center text-center relative overflow-hidden border border-white/10">
+        <div class="relative w-32 h-32 mb-4">
+          <div class="w-32 h-32 rounded-full overflow-hidden border-4 border-amber-600/60 shadow-xl mx-auto flex items-center justify-center bg-gray-800">
+            ${s.photo ? `<img src="${s.photo}" alt="${s.name}" class="w-full h-full object-cover"/>` : `<span class="text-3xl font-bold text-white">${s.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</span>`}
           </div>
         </div>
+
+        <h2 class="text-xl font-bold text-white tracking-wide uppercase mb-1">${s.name}</h2>
+        <p class="text-amber-400 font-bold text-base tracking-wider mb-1">${s.regNo}</p>
+        <p class="text-gray-300 text-xs font-semibold uppercase tracking-wider mb-2 px-2 leading-relaxed">${s.programme}</p>
+        
+        <div class="flex items-center gap-1.5 text-xs text-blue-300 mb-6 bg-blue-500/10 px-3 py-1.5 rounded-full border border-blue-500/20 max-w-full truncate">
+          <span class="material-symbols-outlined text-sm">mail</span>
+          <span class="truncate">${s.email}</span>
+        </div>
+
+        <div class="w-full border-t border-white/10 my-2"></div>
+
+        <div class="w-full space-y-2.5 text-xs text-left pt-2">
+          <div class="flex justify-between items-center"><span class="text-gray-400">RollNumber</span><span class="text-gray-200 font-medium">: ${s.rollNumber || ''}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Date of Birth</span><span class="text-gray-200 font-medium">: ${s.dob}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Mobile</span><span class="text-gray-200 font-medium">: ${s.mobile}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Age</span><span class="text-gray-200 font-medium">: ${s.age}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Batch</span><span class="text-gray-200 font-medium">: ${s.batch}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Semester</span><span class="text-gray-200 font-medium">: ${s.semester}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Year</span><span class="text-gray-200 font-medium">: ${s.yearDisplay}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">Section Name</span><span class="text-gray-200 font-medium">: ${s.section}</span></div>
+          <div class="flex justify-between items-center"><span class="text-gray-400">School</span><span class="text-gray-200 font-medium">: ${s.school}</span></div>
+        </div>
       </div>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="glass-card rounded-2xl p-6">
-        <h3 class="text-base font-bold text-white mb-3 flex items-center gap-2">
-          <span class="material-symbols-outlined text-blue-400 text-lg">person</span> Personal Information
-        </h3>
-        ${row('Date of Birth', s.dob)}
-        ${row('Gender', s.gender)}
-        ${row('Blood Group', s.bloodGroup)}
-        ${row('Nationality', s.nationality)}
-        ${row('Religion', s.religion)}
-        ${row('Community', s.community)}
-        ${row('Mother Tongue', s.motherTongue)}
-        ${row('Email', s.email)}
-        ${row('Mobile', s.mobile)}
-        ${row('Aadhaar', s.aadhaar)}
-        ${row('First Graduate', s.firstGraduate)}
+
+      <!-- RIGHT COLUMN -->
+      <div class="lg:col-span-8 space-y-6">
+
+        <!-- PERSONAL DETAILS GRID -->
+        <div class="glass-card rounded-2xl p-6 border border-white/10">
+          <h3 class="text-center text-sm font-bold text-gray-200 uppercase tracking-widest mb-6 pb-2 border-b border-white/10">
+            PERSONAL DETAILS
+          </h3>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6 text-xs divide-y sm:divide-y-0 divide-white/5">
+            <div><span class="text-gray-400 block mb-0.5 font-medium">Name</span><span class="text-white font-bold text-sm">${s.name}</span></div>
+            <div><span class="text-gray-400 block mb-0.5 font-medium">Gender</span><span class="text-white font-bold text-sm">${s.gender}</span></div>
+            <div></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Blood Group</span><span class="text-white font-semibold">${s.bloodGroup}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Medical History</span><span class="text-white font-semibold">${s.medicalHistory}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">NativeState</span><span class="text-white font-semibold">${s.nativeState}</span></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Height</span><span class="text-white font-semibold">${s.height}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Date Of Birth</span><span class="text-white font-semibold">${s.dob}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Nationality</span><span class="text-white font-semibold">${s.nationality}</span></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Religion</span><span class="text-white font-semibold">${s.religion}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Community</span><span class="text-white font-semibold">${s.community}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Mother Tongue</span><span class="text-white font-semibold">${s.motherTongue}</span></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Stayed in Hostel?</span><span class="text-white font-semibold">${s.stayedInHostel}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Native Place</span><span class="text-white font-semibold">${s.nativePlace}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Weight</span><span class="text-white font-semibold">${s.weight}</span></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Aadhaar</span><span class="text-white font-semibold">${s.aadhaar}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Mother Name</span><span class="text-white font-semibold">${s.motherName}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Student Mobile No</span><span class="text-white font-semibold">${s.studentMobile}</span></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Student Email</span><span class="text-white font-semibold truncate block">${s.studentEmail}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">First Graduate</span><span class="text-white font-semibold">${s.firstGraduate}</span></div>
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">Extra Curricular</span><span class="text-white font-semibold">${s.extraCurricular}</span></div>
+
+            <div class="pt-2 sm:pt-0"><span class="text-gray-400 block mb-0.5 font-medium">IsPWD</span><span class="text-white font-semibold">${s.isPwd}</span></div>
+          </div>
+        </div>
+
+        <!-- PARENTS DETAILS -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+          <!-- FATHER DETAILS CARD -->
+          <div class="glass-card rounded-2xl p-6 border border-white/10 flex flex-col items-center text-center">
+            <h4 class="text-xs font-bold text-gray-300 uppercase tracking-wider mb-4 w-full text-left border-b border-white/10 pb-2">FATHER DETAILS</h4>
+            
+            <div class="w-20 h-20 rounded-full overflow-hidden border-2 border-blue-500/40 shadow-md mb-3 flex items-center justify-center bg-gray-800">
+              ${s.fatherPhoto ? `<img src="${s.fatherPhoto}" alt="${s.fatherName}" class="w-full h-full object-cover"/>` : `<span class="text-xl font-bold text-white">${s.fatherName.split(' ').map(n=>n[0]).join('')}</span>`}
+            </div>
+
+            <h5 class="text-sm font-bold text-white mb-0.5">${s.fatherName}</h5>
+            <p class="text-xs text-gray-400 font-medium mb-4">${s.fatherSubtitle}</p>
+
+            <div class="w-full space-y-2 text-xs text-left">
+              <div class="flex justify-between items-center"><span class="text-gray-400">Occupation</span><span class="text-gray-200">: ${s.fatherOccupation}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Office Designation</span><span class="text-gray-200">: ${s.fatherOfficeDesignation}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Annual Income</span><span class="text-gray-200">: ${s.fatherAnnualIncome}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Aadhar</span><span class="text-gray-200 font-semibold">: ${s.fatherAadhaar}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Email</span><span class="text-gray-200">: ${s.fatherEmail}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Mobile</span><span class="text-gray-200">: ${s.fatherMobile}</span></div>
+            </div>
+          </div>
+
+          <!-- MOTHER DETAILS CARD -->
+          <div class="glass-card rounded-2xl p-6 border border-white/10 flex flex-col items-center text-center">
+            <h4 class="text-xs font-bold text-gray-300 uppercase tracking-wider mb-4 w-full text-left border-b border-white/10 pb-2">MOTHER DETAILS</h4>
+            
+            <div class="w-20 h-20 rounded-full overflow-hidden border-2 border-blue-500/40 shadow-md mb-3 flex items-center justify-center bg-gray-800">
+              ${s.motherPhoto ? `<img src="${s.motherPhoto}" alt="${s.motherName}" class="w-full h-full object-cover"/>` : `<span class="text-xl font-bold text-white">${s.motherName.split(' ').map(n=>n[0]).join('')}</span>`}
+            </div>
+
+            <h5 class="text-sm font-bold text-white mb-0.5">${s.motherName}</h5>
+            <p class="text-xs text-gray-400 font-medium mb-4">${s.motherSubtitle}</p>
+
+            <div class="w-full space-y-2 text-xs text-left">
+              <div class="flex justify-between items-center"><span class="text-gray-400">Occupation</span><span class="text-gray-200">: ${s.motherOccupation}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Office Designation</span><span class="text-gray-200">: ${s.motherOfficeDesignation}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Annual Income</span><span class="text-gray-200">: ${s.motherAnnualIncome}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Aadhar</span><span class="text-gray-200">: ${s.motherAadhaar}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Email</span><span class="text-gray-200">: ${s.motherEmail}</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">Mobile</span><span class="text-gray-200">: ${s.motherMobile}</span></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- SIBLING DETAILS -->
+        <div class="glass-card rounded-2xl p-5 border border-white/10">
+          <h4 class="text-xs font-bold text-gray-300 uppercase tracking-widest text-center mb-3">SIBLING DETAILS</h4>
+          <div class="bg-white/5 rounded-xl p-3 text-center text-xs text-gray-400 border border-white/5 font-medium">
+            No Data Avaliable
+          </div>
+        </div>
+
       </div>
-      <div class="glass-card rounded-2xl p-6">
-        <h3 class="text-base font-bold text-white mb-3 flex items-center gap-2">
-          <span class="material-symbols-outlined text-blue-400 text-lg">family_history</span> Guardian Details
-        </h3>
-        ${row('Father Name', s.fatherName)}
-        ${row('Father Mobile', s.fatherMobile)}
-        ${row('Father Aadhaar', s.fatherAadhaar)}
-        ${row('Father Occupation', s.fatherOccupation)}
-        ${row('Mother Name', s.motherName)}
-        ${row('Mother Mobile', s.motherMobile)}
-        ${row('Mother Occupation', s.motherOccupation)}
-      </div>
+
     </div>
   </div>`;
 }
