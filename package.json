@@ -1,17 +1,17 @@
 {
-  "name": "sathyabama-student-portal-wrapper",
+  "name": "sathyabama-student-portal",
   "version": "1.0.0",
-  "description": "Modern frontend wrapper and proxy server for Sathyabama Student Portal",
+  "description": "Blazing fast frontend wrapper and REST proxy for Sathyabama Student Portal",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
   "dependencies": {
-    "axios": "^1.6.8",
-    "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
     "playwright": "^1.62.1"
   }
 }

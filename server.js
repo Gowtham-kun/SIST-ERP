@@ -1,6 +1,5 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
-const { chromium } = require('playwright');
 const path = require('path');
 
 const app = express();
@@ -12,52 +11,36 @@ app.use(express.static(path.join(__dirname)));
 
 const ERP_ORIGIN = 'https://erp.sathyabama.ac.in';
 
-// ─── Direct ERP API Caller ────────────────────────────────────────────────────
-async function erpPostDirect(endpoint, token, body = {}) {
+// ─── Direct ERP API Caller (Fast REST HTTP) ──────────────────────────────────
+async function erpPostDirect(endpoint, token = null, body = {}) {
   try {
-    console.log(`[erpPostDirect] POST ${endpoint}`, JSON.stringify(body));
+    const headers = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*'
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['Access-Token'] = token;
+    }
+
     const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/${endpoint}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'Access-Token': token
-      },
-      body: JSON.stringify(body)
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12000)
     });
-    const text = await res.text();
-    console.log(`[erpPostDirect] ${endpoint} -> ${res.status}:`, text.substring(0, 300));
-    if (!res.ok) return null;
-    try { return JSON.parse(text); } catch (_) { return null; }
+
+    if (!res.ok) {
+      console.log(`[ERP-API] ${endpoint} returned HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    return data;
   } catch (e) {
-    console.log(`[erpPostDirect] ${endpoint} error:`, e.message);
+    console.log(`[ERP-API] ${endpoint} error:`, e.message);
     return null;
   }
-}
-
-// ─── Utility: find value in captured map by keyword list ─────────────────────
-function findByKeywords(captured, keywords) {
-  for (const kw of keywords) {
-    for (const key of Object.keys(captured)) {
-      if (key.toLowerCase().includes(kw.toLowerCase())) return captured[key];
-    }
-  }
-  return null;
-}
-
-// ─── Utility: extract StudentId from any captured payload ────────────────────
-function extractStudentId(captured) {
-  for (const key of Object.keys(captured)) {
-    const p = captured[key];
-    if (!p || typeof p !== 'object') continue;
-    const id = p?.responseData?.StudentInfo?.[0]?.StudentId
-      || p?.responseData?.login?.StudentId
-      || p?.responseData?.StudentId
-      || p?.data?.StudentId
-      || p?.StudentId;
-    if (id) return id;
-  }
-  return 0;
 }
 
 // ─── Attendance Reconstruction (Exact match of official ERP Angular logic) ───
@@ -165,8 +148,6 @@ function reconstructAttendance(respData, fromDateStr = '2026-07-01', toDateStr =
   const totalDays = totalPresent + totalAbsent;
   const overallPercentage = totalDays > 0 ? parseFloat(((totalPresent / totalDays) * 100).toFixed(2)) : 0;
 
-  console.log(`[reconstructAttendance] Reconstructed: present=${totalPresent}, absent=${totalAbsent}, days=${totalDays}, pct=${overallPercentage}%`);
-
   return {
     overallPercentage,
     totalDays,
@@ -176,244 +157,7 @@ function reconstructAttendance(respData, fromDateStr = '2026-07-01', toDateStr =
   };
 }
 
-// ─── POST /api/login ──────────────────────────────────────────────────────────
-app.post('/api/login', async (req, res) => {
-  const { regNumber, password } = req.body;
-  if (!regNumber || !password)
-    return res.status(400).json({ success: false, message: 'Register Number and Password are required.' });
-
-  let browser;
-  try {
-    console.log('\n========================================================');
-    console.log(`[Playwright] Starting session for ${regNumber}`);
-    console.log('========================================================');
-
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 900 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    });
-    const page = await context.newPage();
-
-    // ── Pre-register network response interceptor ────────────────────────
-    const captured = {};
-    page.on('response', async (response) => {
-      const url = response.url();
-      const ct  = response.headers()['content-type'] || '';
-      if (!ct.includes('application/json') && !ct.includes('text/json')) return;
-      try {
-        const text = await response.text();
-        if (!text || text.trim() === '') return;
-        const json = JSON.parse(text);
-        const urlObj  = new URL(url);
-        const segs    = urlObj.pathname.split('/').filter(Boolean);
-        const lastSeg = (segs[segs.length - 1] || '').toLowerCase();
-        const last2   = segs.slice(-2).join('/').toLowerCase();
-        captured[lastSeg] = json;
-        captured[last2]   = json;
-        captured[url]     = json;
-        console.log(`[Intercept] ${last2} (${response.status()})`);
-      } catch (_) {}
-    });
-
-    // ── STEP 1: Login page ────────────────────────────────────────────────
-    console.log('[Playwright] Step 1: Navigating to login page...');
-    await page.goto(`${ERP_ORIGIN}/account/login?returnUrl=%2F`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    });
-
-    // ── STEP 2: Fill credentials & Submit ─────────────────────────────────
-    console.log('[Playwright] Step 2: Filling credentials...');
-    await page.locator([
-      'input[id="RegisterNumber"]',
-      'input[formcontrolname="RegisterNumber"]',
-      'input[type="text"]'
-    ].join(', ')).first().waitFor({ state: 'visible', timeout: 15000 });
-
-    await page.locator([
-      'input[id="RegisterNumber"]',
-      'input[formcontrolname="RegisterNumber"]',
-      'input[type="text"]'
-    ].join(', ')).first().fill(regNumber);
-
-    await page.locator('input[type="password"]').first().fill(password);
-
-    console.log('[Playwright] Submitting login...');
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {}),
-      page.locator('button[type="submit"], input[type="submit"]').first().click()
-    ]);
-
-    await page.waitForTimeout(3000);
-
-    const postLoginUrl = page.url();
-    console.log(`[Playwright] Post-login URL: ${postLoginUrl}`);
-    if (postLoginUrl.includes('/account/login')) {
-      await browser.close();
-      return res.status(401).json({ success: false, message: 'Invalid Register Number or Password.' });
-    }
-
-    // ── STEP 3: Extract JWT Token & StudentId ─────────────────────────────
-    const token = await page.evaluate(() => {
-      const keys = ['Access-Token', 'access_token', 'token', 'authToken', 'jwt', 'bearer'];
-      for (const k of keys) {
-        const v = localStorage.getItem(k) || sessionStorage.getItem(k);
-        if (v) return v;
-      }
-      const m = document.cookie.match(/(?:Access-Token|access_token|token)=([^;]+)/);
-      return m ? decodeURIComponent(m[1]) : '';
-    });
-    console.log(`[Playwright] Token: ${token ? token.substring(0, 30) + '...' : 'NONE'}`);
-
-    await page.waitForTimeout(2000);
-    const studentId = extractStudentId(captured);
-    console.log('[Playwright] Extracted StudentId:', studentId);
-
-    // ── STEP 4: Switch to Attendance Tab on /student/view ──────────────────
-    console.log('[Playwright] Step 4: Activating Attendance tab on /student/view...');
-    try {
-      const attTab = page.locator('#Student-Attendance-Details, #attendance-tab, a[href="#Student-Attendance-Details"], a[href="#attendance-tab"]').first();
-      if (await attTab.isVisible({ timeout: 4000 }).catch(() => false)) {
-        await attTab.click({ force: true });
-        console.log('[Playwright] Clicked Attendance tab!');
-        await page.waitForTimeout(1500);
-      }
-    } catch (e) {
-      console.log('[Playwright] Tab click note:', e.message);
-    }
-
-    // ── STEP 5: Automatically Click the Search Button ─────────────────────
-    console.log('[Playwright] Step 5: Locating & clicking Search button...');
-    const searchBtn = page.locator('button:has-text("Search"), input[value="Search"], button.btn-info').first();
-    try {
-      if (await searchBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('[Playwright] Search button visible. Clicking...');
-        const searchPromise = page.waitForResponse(
-          r => r.url().toLowerCase().includes('studentdailyattendance') && r.status() === 200,
-          { timeout: 10000 }
-        ).catch(() => null);
-
-        await searchBtn.click({ force: true });
-        const resp = await searchPromise;
-        if (resp) {
-          try {
-            captured['search_attendance_api'] = await resp.json();
-            console.log('[Playwright] Intercepted Search response!');
-          } catch (_) {}
-        }
-        await page.waitForTimeout(2000);
-      }
-    } catch (e) {
-      console.log('[Playwright] Search button click note:', e.message);
-    }
-
-    // ── STEP 6: Scrape DOM Table if rendered ──────────────────────────────
-    const domDailyLogs = await page.evaluate(() => {
-      const logs = [];
-      const seen = new Set();
-      const rows = Array.from(document.querySelectorAll('table tbody tr'));
-      for (const row of rows) {
-        const cells = Array.from(row.querySelectorAll('td')).map(c => (c.innerText || '').trim());
-        if (cells.length >= 4) {
-          const dateVal = cells[1];
-          const dayVal = cells[2];
-          const statusVal = cells[3];
-          if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateVal) && !seen.has(dateVal)) {
-            seen.add(dateVal);
-            logs.push({
-              sNo: parseInt(cells[0], 10) || (logs.length + 1),
-              date: dateVal,
-              day: dayVal || 'Working Day',
-              status: /absent/i.test(statusVal) ? 'Absent' : 'Present'
-            });
-          }
-        }
-      }
-      return logs;
-    }).catch(() => []);
-
-    if (domDailyLogs.length > 0) {
-      console.log(`[Playwright] ✅ Scraped ${domDailyLogs.length} logs from DOM table!`);
-      captured['dom_daily_logs'] = domDailyLogs;
-    }
-
-    await browser.close();
-
-    // ── STEP 7: Direct API Fallbacks (using exact verified endpoints) ──────
-    let profileRaw = findByKeywords(captured, ['masterstudent/view', 'masterstudent/login', 'view', 'login']);
-    let attendanceRaw = findByKeywords(captured, ['search_attendance_api', 'studentdailyattendance', 'attendance']);
-    let caeRaw = findByKeywords(captured, ['studentcaeresult', 'caeresult', 'cae']);
-
-    if (!profileRaw && token) {
-      profileRaw = await erpPostDirect('MasterStudent/view', token, {})
-        || await erpPostDirect('MasterStudent/login', token, {});
-    }
-
-    // Always ensure attendance is fetched via verified API endpoint
-    if (!attendanceRaw && token) {
-      console.log('[ERP] Fetching Attendance via direct API (StudentDailyAttendance/StudentWiseAttendance)...');
-      const sid = studentId || extractStudentId(captured);
-      const attBody = {
-        FromDate: '2026-07-01',
-        ToDate: '2026-12-30',
-        StudentId: sid
-      };
-      attendanceRaw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, attBody)
-        || await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, { StudentId: sid });
-    }
-
-    // Direct API fallback for CAE Results
-    if (!caeRaw && token) {
-      console.log('[ERP] Fetching CAE via direct API fallback...');
-      const prof = profileRaw?.responseData?.StudentInfo?.[0] || {};
-      const caeBody = {
-        RegisterNumber: regNumber,
-        AcademicMonthId: prof.CurrentAcademicMonth || prof.AcademicMonthId || 0,
-        AcademicYear: prof.CurrentAcademicYear || prof.AcademicYear || '2026-2027',
-        Semester: prof.CurrentSemester || prof.Semester || 3
-      };
-      caeRaw = await erpPostDirect('CAEResult/studentCAEResult', token, caeBody)
-        || await erpPostDirect('CAEResult/studentCAEResult', token, { StudentId: studentId })
-        || await erpPostDirect('CAEResult/studentCAEResult', token, {});
-    }
-
-    const profile    = mapProfile(profileRaw);
-    const attendance = mapAttendance(attendanceRaw, captured);
-    const cae        = mapCAE(caeRaw);
-
-    if (!profile.name || profile.name === '[404]') {
-      return res.status(500).json({
-        success: false,
-        message: `Login succeeded but profile was empty. Keys: [${Object.keys(captured).join(', ')}].`
-      });
-    }
-
-    return res.json({
-      success: true,
-      token,
-      student: {
-        name: profile.name,
-        regNo: profile.regNo,
-        department: profile.department,
-        semester: profile.semester,
-        section: profile.section
-      },
-      data: {
-        studentDetails: profile,
-        attendanceSummary: attendance,
-        caeResults: cae
-      }
-    });
-
-  } catch (err) {
-    if (browser) await browser.close().catch(() => {});
-    console.error('[Scraper Error]', err.stack || err.message);
-    return res.status(500).json({ success: false, message: `Scraper failed: ${err.message}` });
-  }
-});
-
-// ─── Data Mappers ─────────────────────────────────────────────────────────────
+// ─── Data Cleaners & Mappers ──────────────────────────────────────────────────
 function cleanVal(v) {
   if (v === null || v === undefined) return '[404]';
   const s = String(v).trim();
@@ -510,36 +254,12 @@ function buildEmptyProfile() {
   };
 }
 
-// ─── Attendance mapper ────────────────────────────────────────────────────────
-function mapAttendance(raw, captured) {
-  // Priority 1: DOM-scraped rows if available and populated
-  if (captured && Array.isArray(captured['dom_daily_logs']) && captured['dom_daily_logs'].length > 0) {
-    const dailyLogs = captured['dom_daily_logs'];
-    const totalPresent = dailyLogs.filter(d => d.status === 'Present').length;
-    const totalAbsent  = dailyLogs.filter(d => d.status === 'Absent').length;
-    const totalDays    = totalPresent + totalAbsent;
-    const overallPercentage = totalDays > 0 ? parseFloat(((totalPresent / totalDays) * 100).toFixed(2)) : 0;
-    const subjectWise  = captured['dom_subject_wise'] || [];
-    console.log(`[mapAttendance] Using DOM logs: present=${totalPresent}, absent=${totalAbsent}, totalDays=${totalDays}`);
-    return {
-      overallPercentage,
-      totalClasses: totalDays,
-      attendedClasses: totalPresent,
-      conductedClasses: totalDays,
-      totalDays,
-      totalPresent,
-      totalAbsent,
-      subjectWise,
-      dailyLogs
-    };
-  }
-
-  // Priority 2: Reconstruct from StudentDailyAttendance/StudentWiseAttendance response
+// ─── Attendance Mapper ────────────────────────────────────────────────────────
+function mapAttendance(raw) {
   const respData = raw?.responseData || raw?.data || raw;
   if (respData?.AttendanceDetails || respData?.ActualWorkingDays) {
     const recon = reconstructAttendance(respData);
     if (recon && recon.dailyLogs.length > 0) {
-      console.log(`[mapAttendance] Successfully reconstructed from API payload: ${recon.dailyLogs.length} days`);
       return {
         overallPercentage: recon.overallPercentage,
         totalClasses: recon.totalDays,
@@ -551,32 +271,6 @@ function mapAttendance(raw, captured) {
         subjectWise: [],
         dailyLogs: recon.dailyLogs
       };
-    }
-  }
-
-  // Priority 3: Search any other captured attendance payloads
-  if (captured && typeof captured === 'object') {
-    for (const k of Object.keys(captured)) {
-      if (k.toLowerCase().includes('attendance') || k.toLowerCase().includes('report')) {
-        const payload = captured[k];
-        const rData = payload?.responseData || payload?.data || payload;
-        if (rData?.AttendanceDetails || rData?.ActualWorkingDays) {
-          const recon = reconstructAttendance(rData);
-          if (recon && recon.dailyLogs.length > 0) {
-            return {
-              overallPercentage: recon.overallPercentage,
-              totalClasses: recon.totalDays,
-              attendedClasses: recon.totalPresent,
-              conductedClasses: recon.totalDays,
-              totalDays: recon.totalDays,
-              totalPresent: recon.totalPresent,
-              totalAbsent: recon.totalAbsent,
-              subjectWise: [],
-              dailyLogs: recon.dailyLogs
-            };
-          }
-        }
-      }
     }
   }
 
@@ -593,28 +287,135 @@ function mapAttendance(raw, captured) {
   };
 }
 
-// ─── CAE mapper ───────────────────────────────────────────────────────────────
+// ─── CAE Mapper ───────────────────────────────────────────────────────────────
 function mapCAE(raw) {
   if (!raw) return { cgpa: '', currentGpa: '', cae1: [], cae2: [], arrearDetails: { totalArrears: 0, clearedArrears: 0, history: [] } };
   const list = raw?.responseData || raw?.data || (Array.isArray(raw) ? raw : null) || [];
   const rows = Array.isArray(list) ? list : [];
   const toRow = r => ({
     code:          r.subjectCode || r.SubjectCode || r.SubCode || '',
-    name:          r.subjectTitle || r.SubjectTitle || r.Subject || '',
+    name:          r.subjectTitle || r.SubjectTitle || r.Subject || r.SubjectName || '',
     maxMarks:      Number(r.maxMarks || r.MaxMarks || r.Max || 50),
-    marksObtained: Number(r.marksObtained || r.MarksObtained || r.Obtained || 0),
+    marksObtained: Number(r.marksObtained || r.MarksObtained || r.Marks || r.marks || r.Obtained || 0),
     status:        r.result || r.Result || r.Status || ''
   });
-  const cae1  = rows.filter(r => Number(r.cae || r.CAE || r.CaeNo || r.ExamNo || 0) === 1).map(toRow);
-  const cae2  = rows.filter(r => Number(r.cae || r.CAE || r.CaeNo || r.ExamNo || 0) === 2).map(toRow);
+  const cae1  = rows.filter(r => Number(r.cae || r.CAE || r.CaeNo || r.ExamNo || r.CAEType || 0) === 1).map(toRow);
+  const cae2  = rows.filter(r => Number(r.cae || r.CAE || r.CaeNo || r.ExamNo || r.CAEType || 0) === 2).map(toRow);
   const fails = cae1.filter(r => r.status === 'FAIL').map(r => r.code);
   return { cgpa: '', currentGpa: '', cae1, cae2, arrearDetails: { totalArrears: fails.length, clearedArrears: 0, history: fails } };
 }
 
-// ─── Start server ─────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log('====================================================');
-  console.log('🚀 Sathyabama ERP Playwright Scraper running at:');
-  console.log(`👉 http://localhost:${PORT}`);
-  console.log('====================================================');
-});
+// ─── Core Login & Data Retrieval Handler (Pure REST API) ──────────────────────
+async function loginHandler(req, res) {
+  const { regNumber, password } = req.body || {};
+  if (!regNumber || !password) {
+    return res.status(400).json({ success: false, message: 'Register Number and Password are required.' });
+  }
+
+  const startTime = Date.now();
+  console.log(`[REST-Auth] Authenticating student ${regNumber}...`);
+
+  try {
+    // 1. Direct login to Sathyabama ERP API
+    const loginData = await erpPostDirect('MasterStudent/login', null, {
+      RegisterNumber: regNumber,
+      Password: password
+    });
+
+    if (!loginData || loginData.status !== true) {
+      const errorMsg = loginData?.message || 'Invalid Register Number or Password.';
+      console.log(`[REST-Auth] Authentication failed for ${regNumber}: ${errorMsg}`);
+      return res.status(401).json({ success: false, message: errorMsg });
+    }
+
+    const loginObj = loginData?.responseData?.login || {};
+    const token = loginObj.accessToken || loginData?.responseData?.accessToken || '';
+    const studentId = loginObj.StudentId || loginData?.responseData?.StudentId || 0;
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Login succeeded on ERP, but no access token was returned.'
+      });
+    }
+
+    console.log(`[REST-Auth] Token acquired. StudentId: ${studentId}. Fetching profile and attendance in parallel...`);
+
+    // 2. Fetch Profile and Attendance concurrently
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+    // Current academic term date range
+    const fromDate = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
+    const toDate   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
+
+    const [profileRaw, attendanceRaw] = await Promise.all([
+      erpPostDirect('MasterStudent/view', token, {}),
+      erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
+        FromDate: fromDate,
+        ToDate: toDate,
+        StudentId: studentId
+      })
+    ]);
+
+    // 3. Fetch CAE Results using profile details
+    const studentInfo = profileRaw?.responseData?.StudentInfo?.[0] || {};
+    const caeBody = {
+      RegisterNumber: regNumber,
+      AcademicMonthId: studentInfo.CurrentAcademicMonth || studentInfo.AcademicMonthId || 2,
+      AcademicYear: studentInfo.CurrentAcademicYear || studentInfo.AcademicYear || `${curYear}-${curYear + 1}`,
+      Semester: studentInfo.CurrentSemester || studentInfo.Semester || 3
+    };
+
+    const caeRaw = await erpPostDirect('CAEResult/studentCAEResult', token, caeBody);
+
+    // 4. Map data with full fidelity to existing frontend contract
+    const profile    = mapProfile(profileRaw || loginData);
+    const attendance = mapAttendance(attendanceRaw);
+    const cae        = mapCAE(caeRaw);
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[REST-Auth] ✅ Completed for ${regNumber} in ${elapsed}ms. Attendance: ${attendance.totalDays} days (${attendance.overallPercentage}%).`);
+
+    return res.json({
+      success: true,
+      token,
+      student: {
+        name: profile.name,
+        regNo: profile.regNo,
+        department: profile.department,
+        semester: profile.semester,
+        section: profile.section
+      },
+      data: {
+        studentDetails: profile,
+        attendanceSummary: attendance,
+        caeResults: cae
+      }
+    });
+
+  } catch (err) {
+    console.error('[REST-Auth Error]', err.stack || err.message);
+    return res.status(500).json({ success: false, message: `Server error: ${err.message}` });
+  }
+}
+
+// ─── API Routes (Compatible with both local Express and Vercel Serverless) ─────
+app.post('/api/login', loginHandler);
+app.post('/login', loginHandler);
+
+app.get('/api/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
+// Export app for Vercel Serverless Functions
+module.exports = app;
+
+// Start local server if executed directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log('====================================================');
+    console.log(`🚀 Sathyabama ERP Pure REST Server running at:`);
+    console.log(`👉 http://localhost:${PORT}`);
+    console.log('====================================================');
+  });
+}
