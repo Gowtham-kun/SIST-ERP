@@ -2,3 +2,5 @@ node_modules/
 .env
 *.log
 .vercel
+__pycache__/
+*.pyc

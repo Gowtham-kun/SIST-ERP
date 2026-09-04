@@ -4,7 +4,7 @@ Sathyabama ERP Portal - Python Playwright Scraper Script
 import sys
 import json
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright  # type: ignore
 
 ERP_LOGIN_URL = "https://erp.sathyabama.ac.in/account/login?returnUrl=%2F"
 

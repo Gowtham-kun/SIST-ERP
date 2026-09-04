@@ -12,6 +12,7 @@
     "express": "^4.19.2"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
     "playwright": "^1.62.1"
   }
 }

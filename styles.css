@@ -141,3 +141,38 @@ h1, h2, h3, h4, .font-headline {
   color: #60a5fa;
   border: 1px solid rgba(37, 99, 235, 0.3);
 }
+
+/* Custom Smooth Scrollbar for responsive tables & panels */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 19, 28, 0.6);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.6);
+}
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(15, 19, 28, 0.6);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Sticky Day Column for Schedule Matrix */
+.sticky-day-col {
+  position: -webkit-sticky !important;
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 25 !important;
+  background-color: #141822 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.7) !important;
+}
+
+
