@@ -3,7 +3,7 @@
  * All data comes from the live backend. No hardcoded placeholders.
  */
 
-let appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday' };
+let appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
 
 document.addEventListener('DOMContentLoaded', () => {
   initWebThreads();
@@ -262,11 +262,19 @@ async function executeLogin(regNumber, password, remember) {
   btn.disabled = true;
   btn.innerHTML = `<span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span><span>Authenticating via ERP Portal...</span>`;
 
+  // WIPE STALE SESSION STATE
+  appState.user = null;
+  appState.data = null;
+  appState.calendarMonth = null;
+  appState.calendarYear = null;
+
   try {
     const result = await PortalAPI.login(regNumber, password, remember);
 
     appState.user = result.student;
     appState.data = result.data;
+    appState.calendarMonth = null;
+    appState.calendarYear = null;
 
     document.getElementById('loginSection').classList.add('hidden');
     document.getElementById('dashboardSection').classList.remove('hidden');
@@ -282,7 +290,7 @@ async function executeLogin(regNumber, password, remember) {
 
 function handleSignOut() {
   PortalAPI.clearCredentials();
-  appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday' };
+  appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
   document.getElementById('dashboardSection').classList.add('hidden');
   document.getElementById('loginSection').classList.remove('hidden');
   document.getElementById('password').value = '';
@@ -318,6 +326,57 @@ function setTab(tab) {
 }
 
 function setTimetableDay(day) { appState.timetableDay = day; setTab('timetable'); }
+
+function setAttendanceSubView(subView) {
+  appState.attendanceSubView = subView;
+  setTab('attendance');
+}
+
+function changeCalendarMonth(offset) {
+  if (appState.calendarMonth === null) return;
+  let m = appState.calendarMonth + offset;
+  let y = appState.calendarYear;
+  if (m < 0) {
+    m = 11;
+    y -= 1;
+  } else if (m > 11) {
+    m = 0;
+    y += 1;
+  }
+  appState.calendarMonth = m;
+  appState.calendarYear  = y;
+  setTab('attendance');
+}
+
+function parseLogDate(dateStr) {
+  if (!dateStr || dateStr === '[404]') return null;
+  const str = String(dateStr).trim();
+
+  const clean = str.split('T')[0];
+  const delim = clean.includes('/') ? '/' : (clean.includes('-') ? '-' : null);
+
+  if (delim) {
+    const parts = clean.split(delim);
+    if (parts.length === 3) {
+      let day, month, year;
+      if (parts[0].length === 4) { // YYYY-MM-DD format
+        year  = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10) - 1;
+        day   = parseInt(parts[2], 10);
+      } else { // DD-MM-YYYY or DD/MM/YYYY format
+        day   = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10) - 1;
+        year  = parseInt(parts[2], 10);
+      }
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        return new Date(year, month, day);
+      }
+    }
+  }
+
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 // ── Profile Tab (Minimalist & Dynamic with [404] Fallback) ────────────────────
 function renderProfile() {
@@ -429,77 +488,248 @@ function renderProfile() {
   </div>`;
 }
 
-// ── Attendance Tab ────────────────────────────────────────────────────────────
+// ── Attendance Tab (Automated Calendar Daily View & Updated Summary) ───────────
 function renderAttendance() {
-  const a = appState.data.attendanceSummary;
-  const pct = a.overallPercentage;
-  const dash = 264, offset = dash - (dash * pct / 100);
-  const color = pct >= 75 ? '#2563eb' : '#f59e0b';
+  const a = appState.data.attendanceSummary || {};
+  const subView = appState.attendanceSubView || 'daily';
+  
+  const dailyLogs = a.dailyLogs || [];
+  
+  // Parsed logs with valid Date objects
+  const parsedLogs = dailyLogs.map(l => {
+    const dt = parseLogDate(l.date);
+    return { ...l, parsedDate: dt };
+  }).filter(l => l.parsedDate !== null);
+
+  // Determine earliest and latest dates in database/payload
+  let minDate = null, maxDate = null;
+  if (parsedLogs.length > 0) {
+    const timestamps = parsedLogs.map(l => l.parsedDate.getTime());
+    minDate = new Date(Math.min(...timestamps));
+    maxDate = new Date(Math.max(...timestamps));
+  }
+
+  // Programmatically set initial visible month to match the month of the very first date entry
+  if (appState.calendarMonth === null || appState.calendarYear === null) {
+    if (minDate) {
+      appState.calendarMonth = minDate.getMonth();
+      appState.calendarYear  = minDate.getFullYear();
+    } else {
+      const now = new Date();
+      appState.calendarMonth = now.getMonth();
+      appState.calendarYear  = now.getFullYear();
+    }
+  }
+
+  const totalPresent = a.totalPresent || parsedLogs.filter(l => l.status === 'Present').length;
+  const totalAbsent  = a.totalAbsent  || parsedLogs.filter(l => l.status === 'Absent').length;
+  const totalDays    = a.totalDays    || (totalPresent + totalAbsent);
+
+  const pct = totalDays > 0 
+    ? parseFloat(((totalPresent / totalDays) * 100).toFixed(1))
+    : (a.overallPercentage || 0);
+
+  const dash = 264, offset = dash - (dash * Math.min(pct, 100) / 100);
+  const isPass = pct >= 80;
+  const ringColor = isPass ? '#10b981' : '#ef4444';
+
   return `
   <div class="tab-content space-y-6">
-    <div class="glass-card rounded-2xl p-6 flex flex-col md:flex-row items-center gap-6">
-      <div class="relative w-28 h-28 flex-shrink-0">
-        <svg class="w-full h-full" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" stroke="rgba(255,255,255,.1)" stroke-width="10" fill="none"/>
-          <circle cx="50" cy="50" r="42" stroke="${color}" stroke-width="10" fill="none"
-            stroke-dasharray="${dash}" stroke-dashoffset="${offset}" class="progress-ring-circle"/>
-        </svg>
-        <span class="absolute inset-0 flex items-center justify-center text-xl font-bold text-white">${pct}%</span>
+
+    <!-- Top Sub-Navigation Toggle: Daily vs Hourly -->
+    <div class="flex items-center justify-between gap-4 flex-wrap pb-2 border-b border-white/10">
+      <div class="glass-card p-1.5 rounded-xl flex items-center gap-1 border border-white/10 bg-black/20">
+        <button onclick="setAttendanceSubView('daily')" id="sub-btn-daily"
+          class="px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='daily' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+          <span class="material-symbols-outlined text-base">calendar_month</span>
+          Daily Attendance
+        </button>
+        <button onclick="setAttendanceSubView('hourly')" id="sub-btn-hourly"
+          class="px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='hourly' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+          <span class="material-symbols-outlined text-base">schedule</span>
+          Hourly Attendance
+        </button>
       </div>
-      <div class="flex-1 space-y-2 text-center md:text-left">
-        <h3 class="text-lg font-bold text-white">Overall Attendance</h3>
-        <p class="text-sm text-gray-300">Attended <span class="text-white font-semibold">${a.attendedClasses}</span> of <span class="text-white font-semibold">${a.conductedClasses}</span> hours</p>
-        <span class="badge-pill ${pct >= 75 ? 'badge-pass' : 'badge-warning'} inline-flex">
-          ${pct >= 75 ? '✅ Eligible for Exams (≥75%)' : '⚠️ Attendance Below 75% Threshold'}
-        </span>
+      <div class="text-xs text-gray-400 font-mono">
+        ACTIVE: <span class="text-blue-400 font-bold uppercase">${subView} VIEW</span>
       </div>
     </div>
-    <div class="glass-card rounded-2xl p-6">
-      <h3 class="text-base font-bold text-white mb-4 flex items-center gap-2">
-        <span class="material-symbols-outlined text-blue-400 text-lg">bar_chart</span> Subject-wise Breakdown
-      </h3>
-      ${a.subjectWise.length === 0
-        ? `<p class="text-gray-400 text-sm text-center py-6">No attendance data returned from portal.</p>`
-        : a.subjectWise.map(sub => `
-        <div class="bg-white/5 p-4 rounded-xl border border-white/5 mb-3">
-          <div class="flex justify-between items-center text-sm mb-1.5">
-            <div>
-              <span class="text-blue-400 font-semibold text-xs mr-2">[${sub.code}]</span>
-              <span class="font-semibold text-white">${sub.name}</span>
-            </div>
-            <span class="font-bold text-white">${sub.percentage}%</span>
+
+    <!-- Attendance Summary Header Card -->
+    <div class="glass-card rounded-2xl p-6 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6">
+      
+      <!-- Left: Circular Percentage Wheel -->
+      <div class="flex items-center gap-6">
+        <div class="relative w-28 h-28 flex-shrink-0">
+          <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" stroke="rgba(255,255,255,.08)" stroke-width="10" fill="none"/>
+            <circle cx="50" cy="50" r="42" stroke="${ringColor}" stroke-width="10" fill="none"
+              stroke-dasharray="${dash}" stroke-dashoffset="${offset}" stroke-linecap="round" class="transition-all duration-700 ease-out"/>
+          </svg>
+          <span class="absolute inset-0 flex items-center justify-center text-xl font-extrabold text-white">${pct}%</span>
+        </div>
+
+        <div class="space-y-2">
+          <h3 class="text-lg font-bold text-white tracking-tight">Overall Attendance</h3>
+          <p class="text-sm text-gray-300">
+            Attended <span class="text-white font-bold">${totalPresent}</span> of <span class="text-white font-bold">${totalDays}</span> days
+          </p>
+          <div>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isPass ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
+              ${isPass ? '✅ Eligible for Exams (≥80%)' : '⚠️ Attendance Below 80% Threshold'}
+            </span>
           </div>
-          <div class="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
-            <div class="h-2 rounded-full ${sub.percentage >= 75 ? 'bg-gradient-to-r from-blue-600 to-indigo-400' : 'bg-amber-500'}"
-                 style="width:${Math.min(sub.percentage,100)}%"></div>
-          </div>
-          <div class="flex justify-between text-xs text-gray-400 mt-1">
-            <span>Attended: ${sub.attended} / ${sub.total} hrs</span>
-            ${sub.percentage < 75 ? `<span class="text-amber-400">⚠️ Below minimum</span>` : ''}
-          </div>
-        </div>`).join('')}
-    </div>
-    ${a.dailyLogs && a.dailyLogs.length > 0 ? `
-    <div class="glass-card rounded-2xl p-6">
-      <h3 class="text-base font-bold text-white mb-4 flex items-center gap-2">
-        <span class="material-symbols-outlined text-blue-400 text-lg">event_available</span> Daily Attendance Logs
-      </h3>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left text-gray-300">
-          <thead class="bg-white/5 text-gray-400 text-xs uppercase">
-            <tr><th class="p-3">Date</th><th class="p-3">Status</th><th class="p-3">Hours</th></tr>
-          </thead>
-          <tbody class="divide-y divide-white/5">
-            ${a.dailyLogs.map(l => `
-            <tr class="hover:bg-white/5 transition-colors">
-              <td class="p-3 font-semibold text-white">${l.date}</td>
-              <td class="p-3"><span class="badge-pill ${l.status==='Present'?'badge-pass':'badge-warning'}">${l.status}</span></td>
-              <td class="p-3 text-xs">${l.hours || '-'}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
+        </div>
       </div>
-    </div>` : ''}
+
+      <!-- Right: Summary Stats Side-by-Side (Total Present & Total Absent) -->
+      <div class="grid grid-cols-2 gap-4 w-full md:w-auto flex-shrink-0">
+        <div class="glass-card rounded-xl p-4 border border-emerald-500/20 bg-emerald-500/5 text-center min-w-[130px]">
+          <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block mb-1">Total Present</span>
+          <span class="text-2xl font-black text-emerald-300 font-mono">${totalPresent}</span>
+          <span class="text-[10px] text-gray-400 block mt-0.5">days</span>
+        </div>
+        <div class="glass-card rounded-xl p-4 border border-rose-500/20 bg-rose-500/5 text-center min-w-[130px]">
+          <span class="text-[11px] font-bold text-rose-400 uppercase tracking-wider block mb-1">Total Absent</span>
+          <span class="text-2xl font-black text-rose-300 font-mono">${totalAbsent}</span>
+          <span class="text-[10px] text-gray-400 block mt-0.5">days</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Main Content Area based on subView selection -->
+    ${subView === 'hourly'
+      ? `<div class="glass-card rounded-2xl p-12 text-center border border-white/10 space-y-3">
+           <span class="material-symbols-outlined text-4xl text-blue-400">hourglass_empty</span>
+           <h4 class="text-lg font-bold text-white">Hourly Attendance View</h4>
+           <p class="text-xs text-gray-400 max-w-md mx-auto">Hourly attendance tracking is currently under development. Switch to Daily Attendance view to monitor calendar breakdown.</p>
+         </div>`
+      : renderCalendarView(parsedLogs, minDate, maxDate)}
+
+  </div>`;
+}
+
+function renderCalendarView(parsedLogs, minDate, maxDate) {
+  const currentYear  = appState.calendarYear;
+  const currentMonth = appState.calendarMonth;
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const dayHeaderNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  // Lookup map by "YYYY-MM-DD"
+  const statusMap = {};
+  parsedLogs.forEach(l => {
+    const y = l.parsedDate.getFullYear();
+    const m = String(l.parsedDate.getMonth() + 1).padStart(2, '0');
+    const d = String(l.parsedDate.getDate()).padStart(2, '0');
+    const key = `${y}-${m}-${d}`;
+    statusMap[key] = l.status;
+  });
+
+  const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+  const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+  let cells = [];
+
+  // Empty leading padding cells
+  for (let i = 0; i < firstDayIndex; i++) {
+    cells.push(`<div class="h-16 sm:h-20 rounded-xl bg-white/[0.02] border border-white/5 opacity-20"></div>`);
+  }
+
+  // Month days 1 .. totalDaysInMonth
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const mStr = String(currentMonth + 1).padStart(2, '0');
+    const dStr = String(day).padStart(2, '0');
+    const dateKey = `${currentYear}-${mStr}-${dStr}`;
+
+    const logStatus = statusMap[dateKey];
+
+    // Check if within minDate and maxDate range
+    let inRange = false;
+    if (minDate && maxDate) {
+      const cTime = new Date(currentYear, currentMonth, day, 0,0,0).getTime();
+      const nMin  = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate(), 0,0,0).getTime();
+      const nMax  = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate(), 0,0,0).getTime();
+      if (cTime >= nMin && cTime <= nMax) inRange = true;
+    }
+
+    let cellBg = 'bg-white/[0.03] text-gray-500 border-white/5';
+    let badgeText = '';
+
+    if (logStatus === 'Present') {
+      cellBg = 'bg-emerald-600/90 border-emerald-400 text-white font-black shadow-lg shadow-emerald-900/30';
+      badgeText = '<span class="text-[10px] uppercase font-bold tracking-wider text-emerald-100 mt-1 block">Present</span>';
+    } else if (logStatus === 'Absent') {
+      cellBg = 'bg-rose-600/90 border-rose-400 text-white font-black shadow-lg shadow-rose-900/30';
+      badgeText = '<span class="text-[10px] uppercase font-bold tracking-wider text-rose-100 mt-1 block">Absent</span>';
+    } else if (inRange) {
+      // Missing date within semester range -> greyed out with high contrast
+      cellBg = 'bg-gray-800/70 border-white/10 text-gray-300 font-semibold opacity-75';
+      badgeText = '<span class="text-[9px] uppercase font-semibold text-gray-400 mt-1 block">No Data</span>';
+    }
+
+    cells.push(`
+      <div class="h-16 sm:h-20 rounded-xl border p-2 flex flex-col justify-between transition-all hover:scale-[1.02] ${cellBg}">
+        <span class="text-sm sm:text-base font-mono font-bold leading-none">${day}</span>
+        ${badgeText}
+      </div>
+    `);
+  }
+
+  return `
+  <div class="glass-card rounded-2xl p-6 border border-white/10 space-y-6">
+
+    <!-- Calendar Month Controls Header -->
+    <div class="flex items-center justify-between flex-wrap gap-4 border-b border-white/10 pb-4">
+      <div class="flex items-center gap-3">
+        <span class="material-symbols-outlined text-blue-400 text-2xl">calendar_today</span>
+        <div>
+          <h3 class="text-xl font-bold text-white tracking-tight">${monthNames[currentMonth]} ${currentYear}</h3>
+          <p class="text-xs text-gray-400">Automated Daily Attendance Calendar View</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button onclick="changeCalendarMonth(-1)"
+          class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 flex items-center justify-center">
+          <span class="material-symbols-outlined text-lg">chevron_left</span>
+        </button>
+        <span class="text-xs font-mono text-gray-300 px-3 font-semibold">${monthNames[currentMonth]}</span>
+        <button onclick="changeCalendarMonth(1)"
+          class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 flex items-center justify-center">
+          <span class="material-symbols-outlined text-lg">chevron_right</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Status Legend -->
+    <div class="flex items-center gap-6 text-xs flex-wrap bg-white/5 p-3 rounded-xl border border-white/5">
+      <span class="text-gray-400 font-semibold">STATUS LEGEND:</span>
+      <div class="flex items-center gap-2">
+        <span class="w-3.5 h-3.5 rounded-md bg-emerald-500 inline-block border border-emerald-300"></span>
+        <span class="text-white font-medium">Present</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-3.5 h-3.5 rounded-md bg-rose-500 inline-block border border-rose-300"></span>
+        <span class="text-white font-medium">Absent</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-3.5 h-3.5 rounded-md bg-gray-800 inline-block border border-white/10"></span>
+        <span class="text-gray-300 font-medium">Greyed Out (No Data / Non-Working)</span>
+      </div>
+    </div>
+
+    <!-- Day Headers Grid -->
+    <div class="grid grid-cols-7 gap-2 text-center text-xs font-bold text-gray-400 uppercase tracking-wider pb-2 border-b border-white/5">
+      ${dayHeaderNames.map(d => `<div>${d}</div>`).join('')}
+    </div>
+
+    <!-- Calendar Days Grid -->
+    <div class="grid grid-cols-7 gap-2 sm:gap-3">
+      ${cells.join('')}
+    </div>
+
   </div>`;
 }
 
