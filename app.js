@@ -801,11 +801,9 @@ function renderTimetable() {
         <span class="material-symbols-outlined text-sm">schedule</span> Section: ${appState.data.studentDetails.section || '—'}
       </div>
     </div>
-    <div class="glass-card rounded-2xl p-8 text-center">
-      <span class="material-symbols-outlined text-4xl text-blue-400 mb-3 block">calendar_month</span>
-      <h3 class="text-lg font-bold text-white mb-2">Timetable Not Available via API</h3>
-      <p class="text-gray-400 text-sm max-w-sm mx-auto">The Sathyabama ERP portal does not expose a timetable endpoint in its REST API.
-      To enable this tab, open DevTools on the <strong class="text-white">Time Table</strong> section of the portal and share the network request URL and response.</p>
+    <div class="glass-card rounded-2xl p-12 text-center flex flex-col items-center justify-center">
+      <span class="material-symbols-outlined text-5xl text-yellow-400 mb-3">schedule</span>
+      <h3 class="text-2xl font-bold text-white tracking-wider">WIP</h3>
     </div>
   </div>`;
 }
