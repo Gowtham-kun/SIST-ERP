@@ -17,11 +17,14 @@ async function erpPostDirect(endpoint, token = null, body = {}) {
     const headers = {
       'Content-Type': 'application/json',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*'
+      'Accept': 'application/json, text/plain, */*',
+      'Origin': ERP_ORIGIN,
+      'Referer': `${ERP_ORIGIN}/student/view`
     };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
       headers['Access-Token'] = token;
+      headers['Token'] = token;
     }
 
     const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/${endpoint}`, {
@@ -165,14 +168,14 @@ function cleanVal(v) {
   return s;
 }
 
-function mapProfile(raw) {
-  if (!raw) return buildEmptyProfile();
-  const si   = raw?.responseData?.StudentInfo?.[0];
-  const li   = raw?.responseData?.login;
+function mapProfile(raw, fallbackLogin = null) {
+  const si   = raw?.responseData?.StudentInfo?.[0] || raw?.StudentInfo?.[0];
+  const li   = fallbackLogin?.responseData?.login || raw?.responseData?.login;
   const flat = raw?.responseData?.student || raw?.responseData
     || raw?.data || (Array.isArray(raw?.responseData) ? raw.responseData[0] : null) || raw;
-  const d = si || li || flat || {};
-  if (!d || typeof d !== 'object') return buildEmptyProfile();
+  
+  // Merge source objects: primary is si, secondary is li
+  const d = Object.assign({}, li || {}, flat || {}, si || {});
 
   const fmtDate = iso => {
     if (!iso) return '[404]';
@@ -185,6 +188,7 @@ function mapProfile(raw) {
   const yearDisplay = (currYear && acadYear) ? `${currYear} (${acadYear})` : cleanVal(currYear || acadYear);
 
   return {
+    _raw:                    d,
     name:                    cleanVal(d.StudentName || d.NAME || d.name),
     regNo:                   cleanVal(d.RegisterNumber || d.registerNumber || d.regno || d.RegNo),
     rollNumber:              cleanVal(d.RollNumber || d.RollNo),
@@ -234,23 +238,6 @@ function mapProfile(raw) {
     motherEmail:             cleanVal(d.MotherOfficeEmail || d.MotherEmail),
     motherMobile:            cleanVal(d.MotherMobileNo || d.MotherMobile),
     siblings: []
-  };
-}
-
-function buildEmptyProfile() {
-  const E = '[404]';
-  return {
-    name: E, regNo: E, rollNumber: E, programme: E, department: E,
-    email: E, dob: E, mobile: E, age: E, batch: E, semester: E,
-    yearDisplay: E, section: E, school: E, gender: E, bloodGroup: E,
-    medicalHistory: E, nativeState: E, height: E, nationality: E,
-    religion: E, community: E, motherTongue: E, stayedInHostel: E, nativePlace: E,
-    weight: E, aadhaar: E, motherName: E, studentMobile: E, studentEmail: E,
-    firstGraduate: E, extraCurricular: E, isPwd: E, fatherName: E, fatherSubtitle: E,
-    fatherOccupation: E, fatherOfficeDesignation: E, fatherAnnualIncome: E, fatherAadhaar: E,
-    fatherEmail: E, fatherMobile: E, motherSubtitle: E, motherOccupation: E,
-    motherOfficeDesignation: E, motherAnnualIncome: E, motherAadhaar: E, motherEmail: E,
-    motherMobile: E, siblings: []
   };
 }
 
@@ -305,7 +292,89 @@ function mapCAE(raw) {
   return { cgpa: '', currentGpa: '', cae1, cae2, arrearDetails: { totalArrears: fails.length, clearedArrears: 0, history: fails } };
 }
 
-// ─── Core Login & Data Retrieval Handler (Pure REST API) ──────────────────────
+// ─── Modular Scraper: Student Profile ─────────────────────────────────────────
+async function scrapeProfile(token, studentId, regNumber, loginData = null) {
+  console.log(`[ProfileScraper] Fetching profile for student ${regNumber} (ID: ${studentId})...`);
+  const sid = Number(studentId) || 0;
+
+  // Attempt 1: MasterStudent/view with { StudentId: sid } (exact ERP payload)
+  let raw = await erpPostDirect('MasterStudent/view', token, { StudentId: sid });
+  if (raw?.responseData?.StudentInfo?.[0]) {
+    console.log('[ProfileScraper] ✅ Retrieved via MasterStudent/view');
+    return mapProfile(raw, loginData);
+  }
+
+  // Attempt 2: MasterStudent/view with { StudentId: sid, RegisterNumber: regNumber }
+  raw = await erpPostDirect('MasterStudent/view', token, { StudentId: sid, RegisterNumber: regNumber });
+  if (raw?.responseData?.StudentInfo?.[0]) {
+    console.log('[ProfileScraper] ✅ Retrieved via MasterStudent/view (with RegNo)');
+    return mapProfile(raw, loginData);
+  }
+
+  // Attempt 3: MasterStudent/getstudentbystudentid with { StudentId: sid }
+  raw = await erpPostDirect('MasterStudent/getstudentbystudentid', token, { StudentId: sid });
+  if (raw?.responseData?.StudentInfo?.[0] || raw?.responseData?.[0]) {
+    console.log('[ProfileScraper] ✅ Retrieved via MasterStudent/getstudentbystudentid');
+    return mapProfile(raw, loginData);
+  }
+
+  // Attempt 4: MasterStudent/getStudentInfoForCerificateGeneration with { SearchNumber: regNumber }
+  raw = await erpPostDirect('MasterStudent/getStudentInfoForCerificateGeneration', token, { SearchNumber: regNumber });
+  if (raw?.responseData?.StudentInfo) {
+    console.log('[ProfileScraper] ✅ Retrieved via getStudentInfoForCerificateGeneration');
+    const info = Array.isArray(raw.responseData.StudentInfo) ? raw.responseData.StudentInfo[0] : raw.responseData.StudentInfo;
+    return mapProfile({ responseData: { StudentInfo: [info] } }, loginData);
+  }
+
+  console.log('[ProfileScraper] ⚠️ Falling back to login data for profile fields');
+  return mapProfile(loginData, loginData);
+}
+
+// ─── Modular Scraper: Attendance ──────────────────────────────────────────────
+async function scrapeAttendance(token, studentId) {
+  console.log(`[AttendanceScraper] Fetching attendance for StudentId: ${studentId}...`);
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  const fromDate = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
+  const toDate   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
+
+  let raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
+    FromDate: fromDate,
+    ToDate: toDate,
+    StudentId: Number(studentId)
+  });
+
+  // Fallback to standard semester term if dynamic range had no working days
+  if (!raw?.responseData?.ActualWorkingDays?.length) {
+    raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
+      FromDate: `${curYear}-07-01`,
+      ToDate: `${curYear}-12-30`,
+      StudentId: Number(studentId)
+    }) || raw;
+  }
+
+  return mapAttendance(raw);
+}
+
+// ─── Modular Scraper: CAE Results ─────────────────────────────────────────────
+async function scrapeCAEResults(token, regNumber, profile) {
+  console.log(`[CAEScraper] Fetching CAE marks for ${regNumber}...`);
+  const now = new Date();
+  const curYear = now.getFullYear();
+
+  const caeBody = {
+    RegisterNumber: regNumber,
+    AcademicMonthId: profile?._raw?.CurrentAcademicMonth || profile?._raw?.AcademicMonthId || 2,
+    AcademicYear: profile?._raw?.CurrentAcademicYear || profile?._raw?.AcademicYear || `${curYear}-${curYear + 1}`,
+    Semester: profile?._raw?.CurrentSemester || profile?.semester || 3
+  };
+
+  const raw = await erpPostDirect('CAEResult/studentCAEResult', token, caeBody);
+  return mapCAE(raw);
+}
+
+// ─── Core Login & Data Retrieval Handler (Orchestrator) ───────────────────────
 async function loginHandler(req, res) {
   const { regNumber, password } = req.body || {};
   if (!regNumber || !password) {
@@ -316,7 +385,7 @@ async function loginHandler(req, res) {
   console.log(`[REST-Auth] Authenticating student ${regNumber}...`);
 
   try {
-    // 1. Direct login to Sathyabama ERP API
+    // 1. Authenticate with ERP API
     const loginData = await erpPostDirect('MasterStudent/login', null, {
       RegisterNumber: regNumber,
       Password: password
@@ -339,43 +408,19 @@ async function loginHandler(req, res) {
       });
     }
 
-    console.log(`[REST-Auth] Token acquired. StudentId: ${studentId}. Fetching profile and attendance in parallel...`);
+    console.log(`[REST-Auth] Token acquired for ${regNumber} (StudentId: ${studentId}). Running modular scrapers...`);
 
-    // 2. Fetch Profile and Attendance concurrently
-    const now = new Date();
-    const curYear = now.getFullYear();
-    const curMonth = now.getMonth() + 1;
-    // Current academic term date range
-    const fromDate = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
-    const toDate   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
-
-    const [profileRaw, attendanceRaw] = await Promise.all([
-      erpPostDirect('MasterStudent/view', token, {}),
-      erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
-        FromDate: fromDate,
-        ToDate: toDate,
-        StudentId: studentId
-      })
+    // 2. Fetch Profile and Attendance using dedicated scrapers concurrently
+    const [profile, attendance] = await Promise.all([
+      scrapeProfile(token, studentId, regNumber, loginData),
+      scrapeAttendance(token, studentId)
     ]);
 
     // 3. Fetch CAE Results using profile details
-    const studentInfo = profileRaw?.responseData?.StudentInfo?.[0] || {};
-    const caeBody = {
-      RegisterNumber: regNumber,
-      AcademicMonthId: studentInfo.CurrentAcademicMonth || studentInfo.AcademicMonthId || 2,
-      AcademicYear: studentInfo.CurrentAcademicYear || studentInfo.AcademicYear || `${curYear}-${curYear + 1}`,
-      Semester: studentInfo.CurrentSemester || studentInfo.Semester || 3
-    };
-
-    const caeRaw = await erpPostDirect('CAEResult/studentCAEResult', token, caeBody);
-
-    // 4. Map data with full fidelity to existing frontend contract
-    const profile    = mapProfile(profileRaw || loginData);
-    const attendance = mapAttendance(attendanceRaw);
-    const cae        = mapCAE(caeRaw);
+    const cae = await scrapeCAEResults(token, regNumber, profile);
 
     const elapsed = Date.now() - startTime;
-    console.log(`[REST-Auth] ✅ Completed for ${regNumber} in ${elapsed}ms. Attendance: ${attendance.totalDays} days (${attendance.overallPercentage}%).`);
+    console.log(`[REST-Auth] ✅ All data scraped for ${regNumber} in ${elapsed}ms. Attendance: ${attendance.totalDays} days (${attendance.overallPercentage}%).`);
 
     return res.json({
       success: true,
@@ -400,9 +445,31 @@ async function loginHandler(req, res) {
   }
 }
 
-// ─── API Routes (Compatible with both local Express and Vercel Serverless) ─────
+// ─── API Routes ───────────────────────────────────────────────────────────────
 app.post('/api/login', loginHandler);
 app.post('/login', loginHandler);
+
+// Individual scrapers accessible directly if needed
+app.post('/api/profile', async (req, res) => {
+  const { token, studentId, regNumber } = req.body || {};
+  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
+  const profile = await scrapeProfile(token, studentId, regNumber);
+  res.json({ success: true, profile });
+});
+
+app.post('/api/attendance', async (req, res) => {
+  const { token, studentId } = req.body || {};
+  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
+  const attendance = await scrapeAttendance(token, studentId);
+  res.json({ success: true, attendance });
+});
+
+app.post('/api/cae', async (req, res) => {
+  const { token, regNumber, profile } = req.body || {};
+  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
+  const cae = await scrapeCAEResults(token, regNumber, profile);
+  res.json({ success: true, cae });
+});
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
