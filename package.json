@@ -1,6 +1,6 @@
 {
   "name": "sathyabama-student-portal",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Blazing fast frontend wrapper and REST proxy for Sathyabama Student Portal",
   "main": "server.js",
   "scripts": {
