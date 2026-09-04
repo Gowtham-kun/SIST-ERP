@@ -489,10 +489,14 @@ function renderProfile() {
   </div>`;
 }
 
-// ── Attendance Tab (Automated Calendar Daily View & Updated Summary) ───────────
+// ── Attendance Tab (Automated Calendar Daily View & Subject Attendance) ─────────
 function renderAttendance() {
-  const a = appState.data.attendanceSummary || {};
+  const a = appState.data?.attendanceSummary || {};
   const subView = appState.attendanceSubView || 'daily';
+  const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
+    ? appState.data.timetable
+    : getClientFallbackTimetable();
+  const enrichedTt = getEnrichedTimetable(rawTt);
   
   const dailyLogs = a.dailyLogs || [];
   
@@ -537,22 +541,22 @@ function renderAttendance() {
   return `
   <div class="tab-content space-y-6">
 
-    <!-- Top Sub-Navigation Toggle: Daily vs Hourly -->
+    <!-- Top Sub-Navigation Toggle: Daily vs Subject Attendance -->
     <div class="flex items-center justify-between gap-4 flex-wrap pb-2 border-b border-white/10">
       <div class="glass-card p-1.5 rounded-xl flex items-center gap-1 border border-white/10 bg-black/20">
         <button onclick="setAttendanceSubView('daily')" id="sub-btn-daily"
-          class="px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='daily' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+          class="px-4 sm:px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='daily' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
           <span class="material-symbols-outlined text-base">calendar_month</span>
-          Daily Attendance
+          <span>Daily Attendance</span>
         </button>
-        <button onclick="setAttendanceSubView('hourly')" id="sub-btn-hourly"
-          class="px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='hourly' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
-          <span class="material-symbols-outlined text-base">schedule</span>
-          Hourly Attendance
+        <button onclick="setAttendanceSubView('subject')" id="sub-btn-subject"
+          class="px-4 sm:px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='subject' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+          <span class="material-symbols-outlined text-base">menu_book</span>
+          <span>Subject Attendance</span>
         </button>
       </div>
       <div class="text-xs text-gray-400 font-mono">
-        ACTIVE: <span class="text-blue-400 font-bold uppercase">${subView} VIEW</span>
+        ACTIVE: <span class="text-blue-400 font-bold uppercase">${subView === 'subject' ? 'SUBJECT' : 'DAILY'} VIEW</span>
       </div>
     </div>
 
@@ -599,17 +603,313 @@ function renderAttendance() {
 
     </div>
 
-    <!-- Main Content Area based on subView selection -->
-    ${subView === 'hourly'
-      ? `<div class="glass-card rounded-2xl p-12 text-center border border-white/10 space-y-3">
-           <span class="material-symbols-outlined text-4xl text-blue-400">hourglass_empty</span>
-           <h4 class="text-lg font-bold text-white">Hourly Attendance View</h4>
-           <p class="text-xs text-gray-400 max-w-md mx-auto">Hourly attendance tracking is currently under development. Switch to Daily Attendance view to monitor calendar breakdown.</p>
-         </div>`
+    <!-- Main Content Area: Subject Attendance View vs Calendar View -->
+    ${subView === 'subject'
+      ? renderSubjectAttendanceView(parsedLogs, enrichedTt)
       : renderCalendarView(parsedLogs, minDate, maxDate)}
 
   </div>`;
 }
+
+// ── Subject Attendance Calculation & Lab Segregation Engine ────────────────────
+function normalizeSubName(name) {
+  if (!name) return '';
+  return String(name).replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim().toLowerCase();
+}
+
+function getEnrichedTimetable(rawTt) {
+  const tt = rawTt || getClientFallbackTimetable();
+  const schedule = {};
+  const days = tt.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  days.forEach(day => {
+    const rawSlots = tt.schedule?.[day] || [];
+    const slots = rawSlots.map(s => ({ ...s }));
+
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i].isBreak || slots[i].isLunch) continue;
+      const normName = normalizeSubName(slots[i].subjectName);
+
+      const prev = i > 0 ? slots[i - 1] : null;
+      const next = i < slots.length - 1 ? slots[i + 1] : null;
+
+      const isConsecutivePrev = prev && !prev.isBreak && !prev.isLunch && (prev.hour === slots[i].hour - 1) && normalizeSubName(prev.subjectName) === normName;
+      const isConsecutiveNext = next && !next.isBreak && !next.isLunch && (next.hour === slots[i].hour + 1) && normalizeSubName(next.subjectName) === normName;
+
+      if (isConsecutivePrev || isConsecutiveNext) {
+        slots[i].isLab = true;
+        slots[i].type = 'PRACTICAL';
+      } else {
+        slots[i].isLab = false;
+        slots[i].type = 'THEORY';
+      }
+    }
+    schedule[day] = slots;
+  });
+
+  return { ...tt, days, schedule };
+}
+
+function calculateSubjectAttendance(parsedLogs, enrichedTt) {
+  const tracker = {};
+
+  // Pre-seed tracker from timetable so all scheduled courses exist
+  for (const day of (enrichedTt.days || [])) {
+    const slots = (enrichedTt.schedule?.[day] || []).filter(s => !s.isBreak && !s.isLunch);
+    for (const slot of slots) {
+      const norm = normalizeSubName(slot.subjectName);
+      const isLab = Boolean(slot.isLab);
+      const key = (isLab ? 'LAB::' : 'THEORY::') + norm;
+      if (!tracker[key]) {
+        tracker[key] = {
+          key,
+          subjectName: slot.subjectName,
+          rawName: formatSubjectName(slot.subjectName),
+          displayName: formatSubjectName(slot.subjectName) + (isLab ? ' [LAB]' : ''),
+          isLab,
+          type: isLab ? 'LAB' : 'THEORY',
+          staff: resolveStaffName(slot.subjectName, slot.staff),
+          conducted: 0,
+          attended: 0,
+          missed: 0
+        };
+      }
+    }
+  }
+
+  // Iterate over parsedLogs
+  for (const log of parsedLogs) {
+    const d = log.parsedDate;
+    if (!d || isNaN(d.getTime())) continue;
+
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = dayNames[d.getDay()];
+    const daySlots = (enrichedTt.schedule?.[dayName] || []).filter(s => !s.isBreak && !s.isLunch);
+
+    for (const slot of daySlots) {
+      const norm = normalizeSubName(slot.subjectName);
+      const isLab = Boolean(slot.isLab);
+      const key = (isLab ? 'LAB::' : 'THEORY::') + norm;
+
+      if (tracker[key]) {
+        tracker[key].conducted += 1;
+        if (log.status === 'Present') {
+          tracker[key].attended += 1;
+        } else if (log.status === 'Absent') {
+          tracker[key].missed += 1;
+        }
+      }
+    }
+  }
+
+  // Calculate percentages, pass status, safe bunks, and recovery targets
+  let totalConducted = 0, totalAttended = 0, totalMissed = 0;
+  for (const key of Object.keys(tracker)) {
+    const s = tracker[key];
+    totalConducted += s.conducted;
+    totalAttended  += s.attended;
+    totalMissed    += s.missed;
+
+    const pct = s.conducted > 0 ? parseFloat(((s.attended / s.conducted) * 100).toFixed(1)) : 100.0;
+    s.percentage = pct;
+    s.isPass = pct >= 80;
+
+    if (pct >= 80) {
+      const safe = Math.floor((s.attended - 0.8 * s.conducted) / 0.8);
+      s.safeBunks = Math.max(0, safe);
+      s.neededToRecover = 0;
+    } else {
+      const needed = Math.ceil((0.8 * s.conducted - s.attended) / 0.2);
+      s.neededToRecover = Math.max(1, needed);
+      s.safeBunks = 0;
+    }
+  }
+
+  const theorySubjects = Object.values(tracker).filter(s => !s.isLab);
+  const labSubjects = Object.values(tracker).filter(s => s.isLab);
+  const criticalCount = Object.values(tracker).filter(s => s.conducted > 0 && s.percentage < 80).length;
+
+  return { theorySubjects, labSubjects, criticalCount, totalConducted, totalAttended, totalMissed };
+}
+
+function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
+  const { theorySubjects, labSubjects, criticalCount } = calculateSubjectAttendance(parsedLogs, enrichedTt);
+
+  const renderSubjectCard = (s, isLabCourse) => {
+    const isPass = s.isPass;
+    const borderClass = isPass
+      ? (isLabCourse ? 'border-purple-500/25 hover:border-purple-500/50 bg-purple-500/[0.03]' : 'border-white/10 hover:border-blue-500/30 bg-white/[0.02]')
+      : 'border-rose-500/40 bg-rose-500/[0.05] shadow-lg shadow-rose-950/20';
+
+    return `
+    <div class="glass-card rounded-2xl p-4 sm:p-5 border ${borderClass} flex flex-col justify-between gap-4 transition-all duration-300">
+      
+      <!-- Top Header -->
+      <div class="space-y-1.5">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <h4 class="text-sm sm:text-base font-bold text-white leading-snug break-words flex items-center gap-1.5 flex-wrap">
+              <span>${s.rawName}</span>
+              ${isLabCourse ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">[LAB]</span>' : ''}
+            </h4>
+            <div class="flex items-center gap-1.5 text-xs text-gray-400 mt-1">
+              <span class="material-symbols-outlined text-sm text-gray-500">person</span>
+              <span class="truncate">${s.staff || 'Faculty'}</span>
+            </div>
+          </div>
+          <span class="text-[9px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${isLabCourse ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}">
+            ${isLabCourse ? 'PRACTICAL' : 'THEORY'}
+          </span>
+        </div>
+      </div>
+
+      <!-- Percentage & Status Pill -->
+      <div class="flex items-center justify-between gap-3 pt-1">
+        <div>
+          <div class="text-2xl sm:text-3xl font-black font-mono tracking-tight ${isPass ? 'text-emerald-400' : 'text-rose-400'}">
+            ${s.percentage}%
+          </div>
+          <span class="text-[10px] text-gray-400 font-medium">Subject Attendance</span>
+        </div>
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold flex-shrink-0 ${isPass ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
+          ${isPass ? '<span class="material-symbols-outlined text-xs">check</span> Eligible (≥80%)' : '<span class="material-symbols-outlined text-xs">warning</span> Below 80%'}
+        </span>
+      </div>
+
+      <!-- Sleek Progress Bar with 80% Threshold Indicator -->
+      <div class="space-y-1">
+        <div class="relative w-full h-2 rounded-full bg-white/10 overflow-hidden">
+          <div class="h-full rounded-full transition-all duration-500 ${isPass ? (isLabCourse ? 'bg-gradient-to-r from-purple-500 to-emerald-400' : 'bg-gradient-to-r from-blue-500 to-emerald-400') : 'bg-gradient-to-r from-rose-500 to-red-600'}"
+            style="width: ${Math.min(s.percentage, 100)}%;"></div>
+          <!-- 80% Marker line -->
+          <div class="absolute top-0 bottom-0 left-[80%] w-0.5 bg-white/40 shadow" title="80% Threshold"></div>
+        </div>
+        <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+          <span>0%</span>
+          <span class="text-gray-400 font-semibold">80% Threshold</span>
+          <span>100%</span>
+        </div>
+      </div>
+
+      <!-- 3-Column Stats Grid -->
+      <div class="grid grid-cols-3 gap-2 text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-xs font-mono">
+        <div>
+          <span class="text-[10px] text-gray-400 block uppercase">Conducted</span>
+          <span class="font-bold text-white text-sm">${s.conducted}</span>
+          <span class="text-[9px] text-gray-500 block">${isLabCourse ? 'hrs' : 'classes'}</span>
+        </div>
+        <div>
+          <span class="text-[10px] text-emerald-400 block uppercase">Attended</span>
+          <span class="font-bold text-emerald-300 text-sm">${s.attended}</span>
+          <span class="text-[9px] text-gray-500 block">${isLabCourse ? 'hrs' : 'classes'}</span>
+        </div>
+        <div>
+          <span class="text-[10px] ${s.missed > 0 ? 'text-rose-400' : 'text-gray-400'} block uppercase">Missed</span>
+          <span class="font-bold ${s.missed > 0 ? 'text-rose-300' : 'text-gray-400'} text-sm">${s.missed}</span>
+          <span class="text-[9px] text-gray-500 block">${isLabCourse ? 'hrs' : 'classes'}</span>
+        </div>
+      </div>
+
+      <!-- Footer: Safe Bunks or Recovery Target -->
+      <div class="pt-2 border-t border-white/5 text-[11px]">
+        ${isPass
+          ? `<div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
+               <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
+               <span>Safe to miss <strong>${s.safeBunks}</strong> ${isLabCourse ? 'more hour(s)' : 'more class(es)'}</span>
+             </div>`
+          : `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
+               <span class="material-symbols-outlined text-sm text-rose-400">notification_important</span>
+               <span>Must attend next <strong>${s.neededToRecover}</strong> consecutive ${isLabCourse ? 'hour(s)' : 'class(es)'}</span>
+             </div>`
+        }
+      </div>
+
+    </div>`;
+  };
+
+  return `
+  <div class="space-y-8">
+    
+    <!-- 80% Threshold Global Alert Banner -->
+    ${criticalCount > 0 ? `
+    <div class="glass-card rounded-2xl p-4 sm:p-5 border border-rose-500/40 bg-rose-500/10 flex items-start sm:items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 flex-shrink-0 text-xl font-bold">
+        ⚠️
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-bold text-rose-400 uppercase tracking-widest font-mono">SUBJECT ATTENDANCE ALERT</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/30 text-rose-200 border border-rose-500/40 font-mono">
+            ${criticalCount} Subject(s) Below 80% Threshold
+          </span>
+        </div>
+        <p class="text-xs sm:text-sm font-semibold text-white mt-1">
+          Minimum 80% attendance is mandatory for semester exam clearance. Check the recovery requirements on flagged courses below.
+        </p>
+      </div>
+    </div>` : `
+    <div class="glass-card rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/5 flex items-center gap-3.5 sm:gap-4">
+      <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 flex-shrink-0 text-lg">
+        ✅
+      </div>
+      <div class="min-w-0">
+        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider font-mono block">ALL COURSES CLEARED (≥80%)</span>
+        <p class="text-xs sm:text-sm text-gray-200 mt-0.5">
+          All theory courses and practical laboratories satisfy the required 80% threshold. You are in good standing.
+        </p>
+      </div>
+    </div>`}
+
+    <!-- ── SECTION 1: THEORY COURSES ATTENDANCE ─────────────────────────────── -->
+    <div class="space-y-4">
+      <div class="flex items-center justify-between gap-4 border-b border-white/10 pb-3 flex-wrap">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+            <span class="material-symbols-outlined text-base">menu_book</span>
+          </div>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold text-white tracking-wide">Theory Courses Attendance</h3>
+            <p class="text-[11px] text-gray-400">Regular lecture hours calculated from your class timetable</p>
+          </div>
+        </div>
+        <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300 font-semibold">
+          ${theorySubjects.length} Courses
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+        ${theorySubjects.map(s => renderSubjectCard(s, false)).join('')}
+      </div>
+    </div>
+
+    <!-- ── SECTION 2: LABORATORY COURSES ATTENDANCE ────────────────────────── -->
+    <div class="space-y-4 pt-2">
+      <div class="flex items-center justify-between gap-4 border-b border-purple-500/20 pb-3 flex-wrap">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+            <span class="material-symbols-outlined text-base">biotech</span>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-base sm:text-lg font-bold text-white tracking-wide">Laboratory Courses Attendance</h3>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">[LAB]</span>
+            </div>
+            <p class="text-[11px] text-gray-400">Consecutive lab hours and practical sessions calculated separately</p>
+          </div>
+        </div>
+        <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 font-semibold">
+          ${labSubjects.length} Lab Courses
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+        ${labSubjects.map(s => renderSubjectCard(s, true)).join('')}
+      </div>
+    </div>
+
+  </div>`;
+}
+
 
 function renderCalendarView(parsedLogs, minDate, maxDate) {
   const currentYear  = appState.calendarYear;
@@ -880,9 +1180,10 @@ function renderTimetable() {
   const activeDay = appState.timetableDay || (days.includes(todayName) ? todayName : 'Monday');
   const layout = appState.timetableLayout || 'day';
 
-  const tt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
+  const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
     ? appState.data.timetable
     : getClientFallbackTimetable();
+  const tt = getEnrichedTimetable(rawTt);
 
   const sectionName = appState.data?.studentDetails?.section || '—';
   const subjects = tt.subjects || [];
@@ -897,7 +1198,6 @@ function renderTimetable() {
           <h3 class="text-lg sm:text-xl font-bold text-white tracking-wide">Class Timetable</h3>
           <span class="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">Section ${sectionName}</span>
         </div>
-        <p class="text-[11px] sm:text-xs text-gray-400 mt-1">Neat & streamlined academic schedule • Verified course instructors</p>
       </div>
 
       <!-- Layout Toggle: Day View vs Weekly Matrix -->
@@ -990,7 +1290,7 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
             </div>`;
           }
 
-          const isPractical = slot.type === 'PRACTICAL';
+          const isPractical = slot.type === 'PRACTICAL' || slot.isLab;
           return `
           <div class="glass-card rounded-2xl p-3.5 sm:p-5 border border-white/10 hover:border-blue-500/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
             <div class="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0 flex-1">
@@ -1000,9 +1300,12 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap mb-1">
-                  <h4 class="text-sm sm:text-base font-bold text-white tracking-wide leading-snug break-words">${formatSubjectName(slot.subjectName)}</h4>
+                  <h4 class="text-sm sm:text-base font-bold text-white tracking-wide leading-snug break-words flex items-center gap-1.5 flex-wrap">
+                    <span>${formatSubjectName(slot.subjectName)}</span>
+                    ${slot.isLab ? '<span class="px-2 py-0.5 rounded text-[10px] sm:text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono">[LAB]</span>' : ''}
+                  </h4>
                   <span class="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-full ${isPractical ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}">
-                    ${slot.type || 'THEORY'}
+                    ${slot.isLab ? 'LAB' : (slot.type || 'THEORY')}
                   </span>
                 </div>
                 <div class="flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs text-gray-400 flex-wrap">
@@ -1085,15 +1388,18 @@ function renderWeeklyGrid(tt, days, todayName) {
                     <span class="text-[9px] sm:text-[10px] text-amber-400/80 font-medium">${slot.isLunch ? 'Lunch' : 'Break'}</span>
                   </td>`;
                 }
-                const isPractical = slot.type === 'PRACTICAL';
+                const isPractical = slot.type === 'PRACTICAL' || slot.isLab;
                 return `
                 <td class="p-1.5 sm:p-2.5 border-b border-white/5 align-middle">
                   <div class="rounded-xl p-2 sm:p-2.5 border transition-all ${isPractical ? 'bg-purple-500/5 border-purple-500/20 hover:border-purple-500/40' : 'bg-white/5 border-white/10 hover:border-blue-500/30'}">
-                    <div class="font-bold text-white text-[10px] sm:text-[11px] leading-tight line-clamp-2">${formatSubjectName(slot.subjectName)}</div>
+                    <div class="font-bold text-white text-[10px] sm:text-[11px] leading-tight line-clamp-2">
+                      ${formatSubjectName(slot.subjectName)}
+                      ${slot.isLab ? '<span class="text-purple-400 font-mono text-[9px] sm:text-[10px] font-bold ml-1">[LAB]</span>' : ''}
+                    </div>
                     <div class="text-[9px] sm:text-[10px] text-gray-400 mt-1 truncate">${resolveStaffName(slot.subjectName, slot.staff)}</div>
                     <div class="mt-1">
                       <span class="text-[8px] sm:text-[9px] px-1.5 py-0.2 rounded font-semibold ${isPractical ? 'text-purple-300 bg-purple-500/20' : 'text-blue-300 bg-blue-500/20'}">
-                        ${slot.type || 'THEORY'}
+                        ${slot.isLab ? 'LAB' : (slot.type || 'THEORY')}
                       </span>
                     </div>
                   </div>
