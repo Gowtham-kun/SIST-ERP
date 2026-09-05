@@ -307,19 +307,48 @@ function showStatus(el, type, msg) {
 // ── Navigation ────────────────────────────────────────────────────────────────
 function renderHeader() {
   const s = appState.data.studentDetails;
-  document.getElementById('headerStudentName').textContent = val(s.name);
-  document.getElementById('headerRegNo').textContent       = `REG NO: ${val(s.regNo)}`;
-  document.getElementById('headerBranch').textContent      = `${val(s.department)} • SEMESTER ${val(s.semester)}`;
-  document.getElementById('avatarInitials').textContent    = (s.name && s.name !== '[404]') ? s.name.split(' ').map(n=>n[0]).join('').slice(0,2) : '??';
+  const initials = (s.name && s.name !== '[404]') ? s.name.split(' ').map(n=>n[0]).join('').slice(0,2) : '??';
+
+  // Desktop Header
+  const dName = document.getElementById('headerStudentName');
+  const dReg = document.getElementById('headerRegNo');
+  const dBranch = document.getElementById('headerBranch');
+  const dAvatar = document.getElementById('avatarInitials');
+  if (dName) dName.textContent = val(s.name);
+  if (dReg) dReg.textContent = `REG NO: ${val(s.regNo)}`;
+  if (dBranch) dBranch.textContent = `${val(s.department)} • SEMESTER ${val(s.semester)}`;
+  if (dAvatar) dAvatar.textContent = initials;
+
+  // Mobile Compact Header
+  const mName = document.getElementById('mobileHeaderStudentName');
+  const mReg = document.getElementById('mobileHeaderRegNo');
+  const mBranch = document.getElementById('mobileHeaderBranch');
+  const mAvatar = document.getElementById('mobileAvatarInitials');
+  if (mName) mName.textContent = val(s.name);
+  if (mReg) mReg.textContent = `REG: ${val(s.regNo)}`;
+  if (mBranch) mBranch.textContent = `SEM ${val(s.semester)}`;
+  if (mAvatar) mAvatar.textContent = initials;
 }
 
 function setTab(tab) {
   appState.activeTab = tab;
   ['profile','attendance','cae','timetable'].forEach(t => {
+    // Desktop Tabs
     const b = document.getElementById(`tab-btn-${t}`);
-    b.className = t === tab
-      ? 'px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold bg-blue-600 text-white shadow-lg shadow-blue-500/25 flex items-center gap-1.5 sm:gap-2 transition-all flex-shrink-0'
-      : 'px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-1.5 sm:gap-2 transition-all flex-shrink-0';
+    if (b) {
+      b.className = t === tab
+        ? 'px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold bg-blue-600 text-white shadow-lg shadow-blue-500/25 flex items-center gap-1.5 sm:gap-2 transition-all flex-shrink-0'
+        : 'px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-1.5 sm:gap-2 transition-all flex-shrink-0';
+    }
+    // Mobile Bottom Navigation Bar
+    const mb = document.getElementById(`mobile-tab-btn-${t}`);
+    if (mb) {
+      if (t === tab) {
+        mb.classList.add('active');
+      } else {
+        mb.classList.remove('active');
+      }
+    }
   });
   const view = { profile: renderProfile, attendance: renderAttendance, cae: renderCAE, timetable: renderTimetable };
   document.getElementById('dashboardTabContent').innerHTML = view[tab]();
@@ -541,46 +570,43 @@ function renderAttendance() {
   return `
   <div class="tab-content space-y-6">
 
-    <!-- Top Sub-Navigation Toggle: Daily vs Subject Attendance -->
-    <div class="flex items-center justify-between gap-4 flex-wrap pb-2 border-b border-white/10">
-      <div class="glass-card p-1.5 rounded-xl flex items-center gap-1 border border-white/10 bg-black/20">
+    <!-- Top Sub-Navigation Toggle: Daily vs Subject Attendance (Clean Segmented Control) -->
+    <div class="w-full pb-1">
+      <div class="mobile-segmented-control max-w-md mx-auto">
         <button onclick="setAttendanceSubView('daily')" id="sub-btn-daily"
-          class="px-4 sm:px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='daily' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+          class="mobile-segmented-item ${subView==='daily' ? 'active' : ''}">
           <span class="material-symbols-outlined text-base">calendar_month</span>
           <span>Daily Attendance</span>
         </button>
         <button onclick="setAttendanceSubView('subject')" id="sub-btn-subject"
-          class="px-4 sm:px-5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${subView==='subject' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+          class="mobile-segmented-item ${subView==='subject' ? 'active' : ''}">
           <span class="material-symbols-outlined text-base">menu_book</span>
           <span>Subject Attendance</span>
         </button>
       </div>
-      <div class="text-xs text-gray-400 font-mono">
-        ACTIVE: <span class="text-blue-400 font-bold uppercase">${subView === 'subject' ? 'SUBJECT' : 'DAILY'} VIEW</span>
-      </div>
     </div>
 
     <!-- Attendance Summary Header Card -->
-    <div class="glass-card rounded-2xl p-6 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6">
+    <div class="glass-card rounded-2xl p-4 sm:p-6 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
       
-      <!-- Left: Circular Percentage Wheel -->
-      <div class="flex items-center gap-6">
-        <div class="relative w-28 h-28 flex-shrink-0">
+      <!-- Left: Circular Percentage Wheel & Status -->
+      <div class="flex items-center gap-4 sm:gap-6 w-full md:w-auto">
+        <div class="relative w-20 h-20 sm:w-28 sm:h-28 flex-shrink-0">
           <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
             <circle cx="50" cy="50" r="42" stroke="rgba(255,255,255,.08)" stroke-width="10" fill="none"/>
             <circle cx="50" cy="50" r="42" stroke="${ringColor}" stroke-width="10" fill="none"
               stroke-dasharray="${dash}" stroke-dashoffset="${offset}" stroke-linecap="round" class="transition-all duration-700 ease-out"/>
           </svg>
-          <span class="absolute inset-0 flex items-center justify-center text-xl font-extrabold text-white">${pct}%</span>
+          <span class="absolute inset-0 flex items-center justify-center text-lg sm:text-xl font-extrabold text-white">${pct}%</span>
         </div>
 
-        <div class="space-y-2">
-          <h3 class="text-lg font-bold text-white tracking-tight">Overall Attendance</h3>
-          <p class="text-sm text-gray-300">
+        <div class="space-y-1 sm:space-y-2 min-w-0 flex-1">
+          <h3 class="text-base sm:text-lg font-bold text-white tracking-tight">Overall Attendance</h3>
+          <p class="text-xs sm:text-sm text-gray-300">
             Attended <span class="text-white font-bold">${totalPresent}</span> of <span class="text-white font-bold">${totalDays}</span> days
           </p>
           <div>
-            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isPass ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[11px] sm:text-xs font-bold ${isPass ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
               ${isPass ? '✅ Eligible for Exams (≥85%)' : '⚠️ Attendance Below 85% Threshold'}
             </span>
           </div>
@@ -588,16 +614,16 @@ function renderAttendance() {
       </div>
 
       <!-- Right: Summary Stats Side-by-Side (Total Present & Total Absent) -->
-      <div class="grid grid-cols-2 gap-4 w-full md:w-auto flex-shrink-0">
-        <div class="glass-card rounded-xl p-4 border border-emerald-500/20 bg-emerald-500/5 text-center min-w-[130px]">
-          <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block mb-1">Total Present</span>
-          <span class="text-2xl font-black text-emerald-300 font-mono">${totalPresent}</span>
-          <span class="text-[10px] text-gray-400 block mt-0.5">days</span>
+      <div class="grid grid-cols-2 gap-3 sm:gap-4 w-full md:w-auto flex-shrink-0">
+        <div class="glass-card rounded-xl p-3 sm:p-4 border border-emerald-500/20 bg-emerald-500/5 text-center min-w-[110px] sm:min-w-[130px]">
+          <span class="text-[10px] sm:text-[11px] font-bold text-emerald-400 uppercase tracking-wider block mb-0.5 sm:mb-1">Total Present</span>
+          <span class="text-xl sm:text-2xl font-black text-emerald-300 font-mono">${totalPresent}</span>
+          <span class="text-[9px] sm:text-[10px] text-gray-400 block mt-0.5">days</span>
         </div>
-        <div class="glass-card rounded-xl p-4 border border-rose-500/20 bg-rose-500/5 text-center min-w-[130px]">
-          <span class="text-[11px] font-bold text-rose-400 uppercase tracking-wider block mb-1">Total Absent</span>
-          <span class="text-2xl font-black text-rose-300 font-mono">${totalAbsent}</span>
-          <span class="text-[10px] text-gray-400 block mt-0.5">days</span>
+        <div class="glass-card rounded-xl p-3 sm:p-4 border border-rose-500/20 bg-rose-500/5 text-center min-w-[110px] sm:min-w-[130px]">
+          <span class="text-[10px] sm:text-[11px] font-bold text-rose-400 uppercase tracking-wider block mb-0.5 sm:mb-1">Total Absent</span>
+          <span class="text-xl sm:text-2xl font-black text-rose-300 font-mono">${totalAbsent}</span>
+          <span class="text-[9px] sm:text-[10px] text-gray-400 block mt-0.5">days</span>
         </div>
       </div>
 
@@ -1037,28 +1063,52 @@ function renderCalendarView(parsedLogs, minDate, maxDate) {
 function renderCAE() {
   const c = appState.data.caeResults;
   const tbl = (rows, label) => `
-    <div class="glass-card rounded-2xl p-6">
-      <h3 class="text-base font-bold text-white mb-4 flex items-center justify-between">
+    <div class="glass-card rounded-2xl p-4 sm:p-6 border border-white/10">
+      <h3 class="text-sm sm:text-base font-bold text-white mb-3 sm:mb-4 flex items-center justify-between">
         <span class="flex items-center gap-2"><span class="material-symbols-outlined text-blue-400 text-lg">assignment</span> ${label}</span>
       </h3>
       ${rows.length === 0
-        ? `<p class="text-gray-400 text-sm text-center py-4">No data returned from portal for this exam.</p>`
-        : `<div class="overflow-x-auto">
-        <table class="w-full text-left text-sm text-gray-300">
-          <thead class="bg-white/5 text-gray-400 text-xs uppercase">
-            <tr><th class="p-3">Code</th><th class="p-3">Subject</th><th class="p-3">Max</th><th class="p-3">Obtained</th><th class="p-3">Result</th></tr>
-          </thead>
-          <tbody class="divide-y divide-white/5">
-            ${rows.map(r=>`
-            <tr class="hover:bg-white/5 transition-colors">
-              <td class="p-3 text-blue-400 font-semibold">${r.code}</td>
-              <td class="p-3 text-white font-medium">${r.name}</td>
-              <td class="p-3">${r.maxMarks}</td>
-              <td class="p-3 font-bold text-white">${r.marksObtained}</td>
-              <td class="p-3"><span class="badge-pill ${r.status==='PASS'?'badge-pass':'badge-warning'}">${r.status}</span></td>
-            </tr>`).join('')}
-          </tbody>
-        </table></div>`}
+        ? `<p class="text-gray-400 text-xs sm:text-sm text-center py-4">No data returned from portal for this exam.</p>`
+        : `
+        <!-- Mobile Card List View (sm:hidden) -->
+        <div class="sm:hidden space-y-2.5">
+          ${rows.map(r => `
+          <div class="glass-card rounded-xl p-3 border border-white/5 space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <h4 class="text-xs font-bold text-white leading-snug">${r.name}</h4>
+                <span class="text-[10px] text-blue-400 font-mono">${r.code}</span>
+              </div>
+              <span class="badge-pill text-[10px] px-2 py-0.5 flex-shrink-0 ${r.status==='PASS'?'badge-pass':'badge-warning'}">${r.status}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs pt-1 border-t border-white/5">
+              <span class="text-gray-400 text-[11px]">Marks Scored</span>
+              <div class="flex items-baseline gap-1 font-mono">
+                <span class="text-base font-black ${r.status==='PASS'?'text-emerald-400':'text-amber-400'}">${r.marksObtained}</span>
+                <span class="text-[11px] text-gray-500">/ ${r.maxMarks}</span>
+              </div>
+            </div>
+          </div>`).join('')}
+        </div>
+
+        <!-- Desktop Table View (hidden sm:block) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="w-full text-left text-sm text-gray-300">
+            <thead class="bg-white/5 text-gray-400 text-xs uppercase">
+              <tr><th class="p-3">Code</th><th class="p-3">Subject</th><th class="p-3">Max</th><th class="p-3">Obtained</th><th class="p-3">Result</th></tr>
+            </thead>
+            <tbody class="divide-y divide-white/5">
+              ${rows.map(r=>`
+              <tr class="hover:bg-white/5 transition-colors">
+                <td class="p-3 text-blue-400 font-semibold">${r.code}</td>
+                <td class="p-3 text-white font-medium">${r.name}</td>
+                <td class="p-3">${r.maxMarks}</td>
+                <td class="p-3 font-bold text-white">${r.marksObtained}</td>
+                <td class="p-3"><span class="badge-pill ${r.status==='PASS'?'badge-pass':'badge-warning'}">${r.status}</span></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
     </div>`;
   return `
   <div class="tab-content space-y-6">
@@ -1200,15 +1250,15 @@ function renderTimetable() {
         </div>
       </div>
 
-      <!-- Layout Toggle: Day View vs Weekly Matrix -->
-      <div class="inline-flex p-1 rounded-xl bg-white/5 border border-white/10 self-start md:self-auto">
+      <!-- Layout Toggle: Day View vs Weekly Matrix (Segmented Control) -->
+      <div class="mobile-segmented-control w-full md:w-auto self-start md:self-auto min-w-[240px]">
         <button onclick="setTimetableLayout('day')"
-          class="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 sm:gap-2 ${layout === 'day' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white'}">
+          class="mobile-segmented-item ${layout === 'day' ? 'active' : ''}">
           <span class="material-symbols-outlined text-sm">view_day</span>
           <span>Day View</span>
         </button>
         <button onclick="setTimetableLayout('week')"
-          class="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 sm:gap-2 ${layout === 'week' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white'}">
+          class="mobile-segmented-item ${layout === 'week' ? 'active' : ''}">
           <span class="material-symbols-outlined text-sm">calendar_view_week</span>
           <span>Weekly Grid</span>
         </button>
@@ -1250,8 +1300,8 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
 
   return `
   <div class="space-y-4">
-    <!-- Day Selector Pills -->
-    <div class="glass-card p-1.5 sm:p-2 rounded-2xl flex items-center gap-1.5 sm:gap-2 overflow-x-auto custom-scrollbar whitespace-nowrap">
+    <!-- Day Selector Pills (Touch scrollable, no ugly scrollbars) -->
+    <div class="glass-card p-1.5 sm:p-2 rounded-2xl flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
       ${days.map(d => {
         const isSelected = d === activeDay;
         const isToday = d === todayName;

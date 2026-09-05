@@ -175,4 +175,105 @@ h1, h2, h3, h4, .font-headline {
   box-shadow: 4px 0 14px rgba(0, 0, 0, 0.7) !important;
 }
 
+/* ── Dedicated Native-App Mobile UI Enhancements ───────────────────────────── */
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgba(15, 19, 28, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 25px -5px rgba(0, 0, 0, 0.6);
+}
+
+.mobile-nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 0.5rem 0.25rem 0.25rem;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-nav-btn.active {
+  color: #60a5fa;
+}
+
+.mobile-nav-btn .nav-icon-wrapper {
+  position: relative;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  transition: all 0.25s ease;
+}
+
+.mobile-nav-btn.active .nav-icon-wrapper {
+  background: rgba(37, 99, 235, 0.22);
+  color: #93c5fd;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+}
+
+.mobile-top-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(15, 19, 28, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Mobile Segmented Control Pill Switch */
+.mobile-segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.25rem;
+  border-radius: 0.875rem;
+}
+
+.mobile-segmented-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+
+.mobile-segmented-item.active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+@media (max-width: 768px) {
+  /* Prevent background bounce and hide default scrollbars on mobile */
+  body {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .glass-card {
+    border-radius: 1rem !important;
+  }
+}
+
+
 
