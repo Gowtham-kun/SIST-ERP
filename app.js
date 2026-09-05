@@ -535,7 +535,7 @@ function renderAttendance() {
     : (a.overallPercentage || 0);
 
   const dash = 264, offset = dash - (dash * Math.min(pct, 100) / 100);
-  const isPass = pct >= 80;
+  const isPass = pct >= 85;
   const ringColor = isPass ? '#10b981' : '#ef4444';
 
   return `
@@ -581,7 +581,7 @@ function renderAttendance() {
           </p>
           <div>
             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isPass ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
-              ${isPass ? '✅ Eligible for Exams (≥80%)' : '⚠️ Attendance Below 80% Threshold'}
+              ${isPass ? '✅ Eligible for Exams (≥85%)' : '⚠️ Attendance Below 85% Threshold'}
             </span>
           </div>
         </div>
@@ -712,14 +712,14 @@ function calculateSubjectAttendance(parsedLogs, enrichedTt) {
 
     const pct = s.conducted > 0 ? parseFloat(((s.attended / s.conducted) * 100).toFixed(1)) : 100.0;
     s.percentage = pct;
-    s.isPass = pct >= 80;
+    s.isPass = pct >= 85;
 
-    if (pct >= 80) {
-      const safe = Math.floor((s.attended - 0.8 * s.conducted) / 0.8);
+    if (pct >= 85) {
+      const safe = Math.floor((s.attended - 0.85 * s.conducted) / 0.85);
       s.safeBunks = Math.max(0, safe);
       s.neededToRecover = 0;
     } else {
-      const needed = Math.ceil((0.8 * s.conducted - s.attended) / 0.2);
+      const needed = Math.ceil((0.85 * s.conducted - s.attended) / 0.15);
       s.neededToRecover = Math.max(1, needed);
       s.safeBunks = 0;
     }
@@ -727,7 +727,7 @@ function calculateSubjectAttendance(parsedLogs, enrichedTt) {
 
   const theorySubjects = Object.values(tracker).filter(s => !s.isLab);
   const labSubjects = Object.values(tracker).filter(s => s.isLab);
-  const criticalCount = Object.values(tracker).filter(s => s.conducted > 0 && s.percentage < 80).length;
+  const criticalCount = Object.values(tracker).filter(s => s.conducted > 0 && s.percentage < 85).length;
 
   return { theorySubjects, labSubjects, criticalCount, totalConducted, totalAttended, totalMissed };
 }
@@ -772,21 +772,21 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
           <span class="text-[10px] text-gray-400 font-medium">Subject Attendance</span>
         </div>
         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold flex-shrink-0 ${isPass ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
-          ${isPass ? '<span class="material-symbols-outlined text-xs">check</span> Eligible (≥80%)' : '<span class="material-symbols-outlined text-xs">warning</span> Below 80%'}
+          ${isPass ? '<span class="material-symbols-outlined text-xs">check</span> Eligible (≥85%)' : '<span class="material-symbols-outlined text-xs">warning</span> Below 85%'}
         </span>
       </div>
 
-      <!-- Sleek Progress Bar with 80% Threshold Indicator -->
+      <!-- Sleek Progress Bar with 85% Threshold Indicator -->
       <div class="space-y-1">
         <div class="relative w-full h-2 rounded-full bg-white/10 overflow-hidden">
           <div class="h-full rounded-full transition-all duration-500 ${isPass ? (isLabCourse ? 'bg-gradient-to-r from-purple-500 to-emerald-400' : 'bg-gradient-to-r from-blue-500 to-emerald-400') : 'bg-gradient-to-r from-rose-500 to-red-600'}"
             style="width: ${Math.min(s.percentage, 100)}%;"></div>
-          <!-- 80% Marker line -->
-          <div class="absolute top-0 bottom-0 left-[80%] w-0.5 bg-white/40 shadow" title="80% Threshold"></div>
+          <!-- 85% Marker line -->
+          <div class="absolute top-0 bottom-0 left-[85%] w-0.5 bg-white/40 shadow" title="85% Threshold"></div>
         </div>
         <div class="flex justify-between text-[10px] text-gray-500 font-mono">
           <span>0%</span>
-          <span class="text-gray-400 font-semibold">80% Threshold</span>
+          <span class="text-gray-400 font-semibold">85% Threshold</span>
           <span>100%</span>
         </div>
       </div>
@@ -830,7 +830,7 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
   return `
   <div class="space-y-8">
     
-    <!-- 80% Threshold Global Alert Banner -->
+    <!-- 85% Threshold Global Alert Banner -->
     ${criticalCount > 0 ? `
     <div class="glass-card rounded-2xl p-4 sm:p-5 border border-rose-500/40 bg-rose-500/10 flex items-start sm:items-center gap-4">
       <div class="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 flex-shrink-0 text-xl font-bold">
@@ -840,11 +840,11 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-xs font-bold text-rose-400 uppercase tracking-widest font-mono">SUBJECT ATTENDANCE ALERT</span>
           <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/30 text-rose-200 border border-rose-500/40 font-mono">
-            ${criticalCount} Subject(s) Below 80% Threshold
+            ${criticalCount} Subject(s) Below 85% Threshold
           </span>
         </div>
         <p class="text-xs sm:text-sm font-semibold text-white mt-1">
-          Minimum 80% attendance is mandatory for semester exam clearance. Check the recovery requirements on flagged courses below.
+          Minimum 85% attendance is mandatory for semester exam clearance. Check the recovery requirements on flagged courses below.
         </p>
       </div>
     </div>` : `
@@ -853,9 +853,9 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
         ✅
       </div>
       <div class="min-w-0">
-        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider font-mono block">ALL COURSES CLEARED (≥80%)</span>
+        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider font-mono block">ALL COURSES CLEARED (≥85%)</span>
         <p class="text-xs sm:text-sm text-gray-200 mt-0.5">
-          All theory courses and practical laboratories satisfy the required 80% threshold. You are in good standing.
+          All theory courses and practical laboratories satisfy the required 85% threshold. You are in good standing.
         </p>
       </div>
     </div>`}
