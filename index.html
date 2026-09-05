@@ -168,37 +168,37 @@
 
       <!-- Tab View Content Host -->
       <div id="dashboardTabContent"></div>
+
+      <!-- Dedicated Native Mobile Bottom Navigation Bar (Hidden on desktop, only appears when Dashboard is active) -->
+      <nav id="mobileBottomNav" class="md:hidden mobile-bottom-nav flex items-center justify-around px-2 py-1">
+        <button id="mobile-tab-btn-profile" onclick="setTab('profile')" class="mobile-nav-btn active">
+          <div class="nav-icon-wrapper">
+            <span class="material-symbols-outlined text-xl">person</span>
+          </div>
+          <span class="mt-0.5">Profile</span>
+        </button>
+        <button id="mobile-tab-btn-attendance" onclick="setTab('attendance')" class="mobile-nav-btn">
+          <div class="nav-icon-wrapper">
+            <span class="material-symbols-outlined text-xl">fact_check</span>
+          </div>
+          <span class="mt-0.5">Attendance</span>
+        </button>
+        <button id="mobile-tab-btn-cae" onclick="setTab('cae')" class="mobile-nav-btn">
+          <div class="nav-icon-wrapper">
+            <span class="material-symbols-outlined text-xl">grade</span>
+          </div>
+          <span class="mt-0.5">CAE Marks</span>
+        </button>
+        <button id="mobile-tab-btn-timetable" onclick="setTab('timetable')" class="mobile-nav-btn">
+          <div class="nav-icon-wrapper">
+            <span class="material-symbols-outlined text-xl">calendar_month</span>
+          </div>
+          <span class="mt-0.5">Timetable</span>
+        </button>
+      </nav>
     </section>
 
   </main>
-
-  <!-- Dedicated Native Mobile Bottom Navigation Bar (Hidden on desktop) -->
-  <nav id="mobileBottomNav" class="md:hidden mobile-bottom-nav flex items-center justify-around px-2 py-1">
-    <button id="mobile-tab-btn-profile" onclick="setTab('profile')" class="mobile-nav-btn active">
-      <div class="nav-icon-wrapper">
-        <span class="material-symbols-outlined text-xl">person</span>
-      </div>
-      <span class="mt-0.5">Profile</span>
-    </button>
-    <button id="mobile-tab-btn-attendance" onclick="setTab('attendance')" class="mobile-nav-btn">
-      <div class="nav-icon-wrapper">
-        <span class="material-symbols-outlined text-xl">fact_check</span>
-      </div>
-      <span class="mt-0.5">Attendance</span>
-    </button>
-    <button id="mobile-tab-btn-cae" onclick="setTab('cae')" class="mobile-nav-btn">
-      <div class="nav-icon-wrapper">
-        <span class="material-symbols-outlined text-xl">grade</span>
-      </div>
-      <span class="mt-0.5">CAE Marks</span>
-    </button>
-    <button id="mobile-tab-btn-timetable" onclick="setTab('timetable')" class="mobile-nav-btn">
-      <div class="nav-icon-wrapper">
-        <span class="material-symbols-outlined text-xl">calendar_month</span>
-      </div>
-      <span class="mt-0.5">Timetable</span>
-    </button>
-  </nav>
 
   <!-- Footer -->
   <footer class="relative z-10 w-full py-4 text-center text-xs text-gray-600 border-t border-white/5">

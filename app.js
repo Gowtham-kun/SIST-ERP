@@ -281,6 +281,10 @@ async function executeLogin(regNumber, password, remember) {
     renderHeader();
     setTab('profile');
 
+    // Reset button state so it is immediately ready if user signs out later
+    btn.disabled = false;
+    btn.innerHTML = `<span class="material-symbols-outlined text-lg">login</span><span>Sign In to Dashboard</span>`;
+
   } catch (err) {
     showStatus(status, 'error', err.message || 'Login failed. Check your credentials and try again.');
     btn.disabled = false;
@@ -290,11 +294,23 @@ async function executeLogin(regNumber, password, remember) {
 
 function handleSignOut() {
   PortalAPI.clearCredentials();
-  appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
+  appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
   document.getElementById('dashboardSection').classList.add('hidden');
   document.getElementById('loginSection').classList.remove('hidden');
   document.getElementById('password').value = '';
   document.getElementById('regNumber').value = '';
+
+  const btn = document.getElementById('submitBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `<span class="material-symbols-outlined text-lg">login</span><span>Sign In to Dashboard</span>`;
+  }
+
+  const status = document.getElementById('statusMessage');
+  if (status) {
+    status.className = 'hidden';
+    status.textContent = '';
+  }
 }
 
 function showStatus(el, type, msg) {
