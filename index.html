@@ -27,7 +27,7 @@
   </div>
 
   <!-- Global Header Bar -->
-  <header class="relative z-20 w-full glass-nav px-4 md:px-8 py-4">
+  <header class="relative z-20 w-full glass-nav px-4 md:px-8 py-2.5 sm:py-4">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       <!-- University Branding -->
       <div class="flex items-center gap-3">
@@ -43,50 +43,50 @@
   </header>
 
   <!-- Main Container -->
-  <main class="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-4 md:px-8 py-8">
+  <main class="relative z-10 flex-1 flex flex-col items-center justify-start md:justify-center w-full px-4 md:px-8 pt-2 pb-6 sm:py-8">
     
     <!-- LOGIN SECTION -->
-    <section id="loginSection" class="w-full max-w-[460px] my-auto">
-      <div class="glass-card rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        <div class="text-center mb-6">
-          <div class="inline-flex p-3 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 mb-3">
+    <section id="loginSection" class="w-full max-w-[460px] mt-1 sm:mt-4 mb-auto md:my-auto">
+      <div class="glass-card rounded-2xl p-4 sm:p-8 shadow-2xl relative overflow-hidden">
+        <div class="text-center mb-2 sm:mb-6">
+          <div class="login-avatar-badge hidden sm:inline-flex p-3 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 mb-3">
             <span class="material-symbols-outlined text-2xl">account_circle</span>
           </div>
-          <h1 class="text-2xl font-bold text-white tracking-tight mb-1">Student Portal Login</h1>
-          <p class="text-xs text-gray-400">Enter your official credentials to access student details.</p>
+          <h1 class="text-xl sm:text-2xl font-bold text-white tracking-tight mb-0.5 sm:mb-1">Student Portal Login</h1>
+          <p class="text-[11px] sm:text-xs text-gray-400">Enter your official credentials to access student details.</p>
         </div>
 
         <div id="statusMessage" class="hidden"></div>
 
-        <form id="loginForm" class="space-y-4" onsubmit="handleLoginSubmit(event)">
+        <form id="loginForm" class="space-y-2.5 sm:space-y-4" onsubmit="handleLoginSubmit(event)">
           <div>
-            <label for="regNumber" class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">Register Number *</label>
+            <label for="regNumber" class="block text-[11px] sm:text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1 sm:mb-1.5">Register Number *</label>
             <div class="relative flex items-center glass-input rounded-xl overflow-hidden">
               <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">person</span>
               <input type="text" id="regNumber" name="regNumber" placeholder="Register Number" required
-                     class="w-full bg-transparent pl-10 pr-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
+                     class="w-full bg-transparent pl-10 pr-4 py-2.5 sm:py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
             </div>
           </div>
 
           <div>
-            <label for="password" class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">Password *</label>
+            <label for="password" class="block text-[11px] sm:text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1 sm:mb-1.5">Password *</label>
             <div class="relative flex items-center glass-input rounded-xl overflow-hidden">
               <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">lock</span>
               <input type="password" id="password" name="password" placeholder="••••••••" required
-                     class="w-full bg-transparent pl-10 pr-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
+                     class="w-full bg-transparent pl-10 pr-4 py-2.5 sm:py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
             </div>
           </div>
 
-          <div class="flex items-center justify-between pt-1">
+          <div class="flex items-center justify-between pt-0.5">
             <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
               <input type="checkbox" id="rememberMe" checked class="w-4 h-4 rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900" />
               <span>Remember login credentials locally</span>
             </label>
           </div>
 
-          <div class="pt-2">
+          <div class="pt-1.5">
             <button type="submit" id="submitBtn" 
-                    class="w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
+                    class="w-full py-3 sm:py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold text-sm transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
               <span class="material-symbols-outlined text-lg">login</span>
               <span>Sign In to Dashboard</span>
             </button>

@@ -277,6 +277,16 @@ h1, h2, h3, h4, .font-headline {
   .glass-card {
     border-radius: 1rem !important;
   }
+
+  /* Elevate login card on mobile so both card and virtual keyboard remain visible */
+  #loginSection {
+    margin-top: 0.25rem !important;
+    margin-bottom: auto !important;
+  }
+
+  .login-avatar-badge {
+    display: none !important;
+  }
 }
 
 /* Footer: by default (e.g. login screen), sits fully and cleanly at the bottom */
