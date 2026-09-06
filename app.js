@@ -262,11 +262,11 @@ function initWebThreads() {
   requestAnimationFrame(render);
 }
 
-// Helper fallback function: returns '[404]' if field is missing, null, undefined, empty, or placeholder dash
+// Helper fallback function: returns clean minimalist '—' if field is missing, null, undefined, empty, or placeholder dash
 function val(v) {
-  if (v === null || v === undefined) return '[404]';
+  if (v === null || v === undefined) return '—';
   const str = String(v).trim();
-  if (str === '' || str === 'null' || str === 'undefined' || str === '-') return '[404]';
+  if (str === '' || str === 'null' || str === 'undefined' || str === '-' || str === '[404]' || str === '—') return '—';
   return str;
 }
 
@@ -360,7 +360,7 @@ function showStatus(el, type, msg) {
 }
 
 function animateStudentName(target, name) {
-  if (!target || !name || name === '[404]') return;
+  if (!target || !name || name === '[404]' || name === '—') return;
   const anim = window.animate || (window.anime && window.anime.animate);
   const scramble = window.scrambleText || (window.anime && window.anime.scrambleText);
   if (anim && scramble) {
@@ -375,7 +375,7 @@ function animateStudentName(target, name) {
 // ── Navigation ────────────────────────────────────────────────────────────────
 function renderHeader() {
   const s = appState.data.studentDetails;
-  const initials = (s.name && s.name !== '[404]') ? s.name.split(' ').map(n=>n[0]).join('').slice(0,2) : '??';
+  const initials = (s.name && s.name !== '[404]' && s.name !== '—') ? s.name.split(' ').map(n=>n[0]).join('').slice(0,2) : '—';
 
   // Desktop Header
   const dName = document.getElementById('headerStudentName');
@@ -451,7 +451,7 @@ function changeCalendarMonth(offset) {
 }
 
 function parseLogDate(dateStr) {
-  if (!dateStr || dateStr === '[404]') return null;
+  if (!dateStr || dateStr === '[404]' || dateStr === '—') return null;
   const str = String(dateStr).trim();
 
   const clean = str.split('T')[0];
@@ -480,7 +480,7 @@ function parseLogDate(dateStr) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// ── Profile Tab (Minimalist & Dynamic with [404] Fallback) ────────────────────
+// ── Profile Tab (Minimalist & Dynamic with Clean Fallback) ────────────────────
 function renderProfile() {
   const s = appState.data.studentDetails;
 

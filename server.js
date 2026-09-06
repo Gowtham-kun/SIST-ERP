@@ -162,9 +162,9 @@ function reconstructAttendance(respData, fromDateStr = '2026-07-01', toDateStr =
 
 // ─── Data Cleaners & Mappers ──────────────────────────────────────────────────
 function cleanVal(v) {
-  if (v === null || v === undefined) return '[404]';
+  if (v === null || v === undefined) return '—';
   const s = String(v).trim();
-  if (!s || s === 'null' || s === 'undefined' || s === '-') return '[404]';
+  if (!s || s === 'null' || s === 'undefined' || s === '-' || s === '[404]' || s === '—') return '—';
   return s;
 }
 
@@ -178,7 +178,7 @@ function mapProfile(raw, fallbackLogin = null) {
   const d = Object.assign({}, li || {}, flat || {}, si || {});
 
   const fmtDate = iso => {
-    if (!iso) return '[404]';
+    if (!iso || iso === '[404]' || iso === '—') return '—';
     try { const p = String(iso).split('T')[0].split('-'); if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`; } catch (_) {}
     return cleanVal(iso);
   };
@@ -212,7 +212,7 @@ function mapProfile(raw, fallbackLogin = null) {
     religion:                cleanVal(d.Religion),
     community:               cleanVal(d.Community),
     motherTongue:            cleanVal(d.MotherTongue),
-    stayedInHostel:          (d.HostelTypeId !== undefined && d.HostelTypeId !== 0) || d.Hostel ? 'Yes' : (d.HostelTypeId === 0 ? 'No' : '[404]'),
+    stayedInHostel:          (d.HostelTypeId !== undefined && d.HostelTypeId !== 0) || d.Hostel ? 'Yes' : (d.HostelTypeId === 0 ? 'No' : '—'),
     nativePlace:             cleanVal(d.NativePlace),
     weight:                  cleanVal(d.Weight),
     aadhaar:                 cleanVal(d.AadhaarNo || d.Aadhaar || d.aadhaarNo),
