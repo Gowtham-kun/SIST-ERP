@@ -279,22 +279,29 @@ h1, h2, h3, h4, .font-headline {
   }
 }
 
-/* Ensure footer clears fixed mobile bottom navigation when dashboard is active */
-body.dashboard-active footer,
-body:has(#dashboardSection:not(.hidden)) footer,
+/* Footer: by default (e.g. login screen), sits fully and cleanly at the bottom */
 #portalFooter {
-  padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
-  pointer-events: none;
-}
-
-#portalFooter * {
+  padding-top: 1rem !important;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 1rem)) !important;
   pointer-events: auto;
 }
 
+/* Ensure footer clears fixed mobile bottom navigation ONLY when dashboard is active on mobile */
+@media (max-width: 767px) {
+  body.dashboard-active #portalFooter,
+  body:has(#dashboardSection:not(.hidden)) #portalFooter {
+    padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px)) !important;
+    pointer-events: none;
+  }
+  body.dashboard-active #portalFooter *,
+  body:has(#dashboardSection:not(.hidden)) #portalFooter * {
+    pointer-events: auto;
+  }
+}
+
 @media (min-width: 768px) {
-  body.dashboard-active footer,
-  body:has(#dashboardSection:not(.hidden)) footer,
-  #portalFooter {
+  body.dashboard-active #portalFooter,
+  body:has(#dashboardSection:not(.hidden)) #portalFooter {
     padding-bottom: 1rem !important;
     pointer-events: auto;
   }
