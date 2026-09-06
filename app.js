@@ -278,6 +278,7 @@ async function executeLogin(regNumber, password, remember) {
 
     document.getElementById('loginSection').classList.add('hidden');
     document.getElementById('dashboardSection').classList.remove('hidden');
+    document.body.classList.add('dashboard-active');
     renderHeader();
     setTab('profile');
 
@@ -297,6 +298,7 @@ function handleSignOut() {
   appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
   document.getElementById('dashboardSection').classList.add('hidden');
   document.getElementById('loginSection').classList.remove('hidden');
+  document.body.classList.remove('dashboard-active');
   document.getElementById('password').value = '';
   document.getElementById('regNumber').value = '';
 
@@ -320,6 +322,19 @@ function showStatus(el, type, msg) {
   el.textContent = msg;
 }
 
+function animateStudentName(target, name) {
+  if (!target || !name || name === '[404]') return;
+  const anim = window.animate || (window.anime && window.anime.animate);
+  const scramble = window.scrambleText || (window.anime && window.anime.scrambleText);
+  if (anim && scramble) {
+    try {
+      anim(target, { innerHTML: scramble({ text: name }) });
+      return;
+    } catch (e) {}
+  }
+  target.textContent = name;
+}
+
 // ── Navigation ────────────────────────────────────────────────────────────────
 function renderHeader() {
   const s = appState.data.studentDetails;
@@ -330,7 +345,7 @@ function renderHeader() {
   const dReg = document.getElementById('headerRegNo');
   const dBranch = document.getElementById('headerBranch');
   const dAvatar = document.getElementById('avatarInitials');
-  if (dName) dName.textContent = val(s.name);
+  if (dName) animateStudentName(dName, val(s.name));
   if (dReg) dReg.textContent = `REG NO: ${val(s.regNo)}`;
   if (dBranch) dBranch.textContent = `${val(s.department)} • SEMESTER ${val(s.semester)}`;
   if (dAvatar) dAvatar.textContent = initials;
@@ -340,7 +355,7 @@ function renderHeader() {
   const mReg = document.getElementById('mobileHeaderRegNo');
   const mBranch = document.getElementById('mobileHeaderBranch');
   const mAvatar = document.getElementById('mobileAvatarInitials');
-  if (mName) mName.textContent = val(s.name);
+  if (mName) animateStudentName(mName, val(s.name));
   if (mReg) mReg.textContent = `REG: ${val(s.regNo)}`;
   if (mBranch) mBranch.textContent = `SEM ${val(s.semester)}`;
   if (mAvatar) mAvatar.textContent = initials;
@@ -368,6 +383,10 @@ function setTab(tab) {
   });
   const view = { profile: renderProfile, attendance: renderAttendance, cae: renderCAE, timetable: renderTimetable };
   document.getElementById('dashboardTabContent').innerHTML = view[tab]();
+  if (tab === 'profile') {
+    const pName = document.getElementById('profileStudentName');
+    if (pName) animateStudentName(pName, val(appState.data?.studentDetails?.name));
+  }
 }
 
 function setTimetableDay(day) { appState.timetableDay = day; setTab('timetable'); }
@@ -435,7 +454,7 @@ function renderProfile() {
     <div class="glass-card rounded-xl p-6 border border-white/10">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-white tracking-tight uppercase">${val(s.name)}</h2>
+          <h2 id="profileStudentName" class="text-2xl font-bold text-white tracking-tight uppercase">${val(s.name)}</h2>
           <p class="text-sm font-semibold text-blue-400 mt-1">${val(s.programme)}</p>
           <p class="text-xs text-gray-400 mt-0.5">${val(s.email)}</p>
         </div>
@@ -854,15 +873,21 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
 
       <!-- Footer: Safe Bunks or Recovery Target -->
       <div class="pt-2 border-t border-white/5 text-[11px]">
-        ${isPass
-          ? `<div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
-               <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
-               <span>Safe to miss <strong>${s.safeBunks}</strong> ${isLabCourse ? 'more hour(s)' : 'more class(es)'}</span>
-             </div>`
-          : `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
+        ${!isPass
+          ? `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
                <span class="material-symbols-outlined text-sm text-rose-400">notification_important</span>
                <span>Must attend next <strong>${s.neededToRecover}</strong> consecutive ${isLabCourse ? 'hour(s)' : 'class(es)'}</span>
              </div>`
+          : (s.safeBunks > 0
+              ? `<div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
+                   <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
+                   <span>Safe to miss <strong>${s.safeBunks}</strong> ${isLabCourse ? 'more hour(s)' : 'more class(es)'}</span>
+                 </div>`
+              : `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
+                   <span class="material-symbols-outlined text-sm text-rose-400">error</span>
+                   <span>Cannot miss anymore ${isLabCourse ? 'hour(s)' : 'class(es)'}</span>
+                 </div>`
+            )
         }
       </div>
 

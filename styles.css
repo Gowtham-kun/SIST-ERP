@@ -97,20 +97,9 @@ h1, h2, h3, h4, .font-headline {
   transform-origin: 50% 50%;
 }
 
-/* View Animations */
+/* View Animations - Immediate frosty rendering without transparent delay */
 .tab-content {
-  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  opacity: 1;
 }
 
 /* Badge Chips */
@@ -275,5 +264,17 @@ h1, h2, h3, h4, .font-headline {
   }
 }
 
+/* Ensure footer clears fixed mobile bottom navigation when dashboard is active */
+body.dashboard-active footer,
+body:has(#dashboardSection:not(.hidden)) footer,
+#portalFooter {
+  padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
+}
 
-
+@media (min-width: 768px) {
+  body.dashboard-active footer,
+  body:has(#dashboardSection:not(.hidden)) footer,
+  #portalFooter {
+    padding-bottom: 1rem !important;
+  }
+}

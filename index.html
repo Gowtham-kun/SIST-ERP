@@ -96,7 +96,7 @@
     </section>
 
     <!-- DASHBOARD SECTION -->
-    <section id="dashboardSection" class="w-full max-w-7xl hidden my-auto space-y-4 sm:space-y-6 pb-24 md:pb-6">
+    <section id="dashboardSection" class="w-full max-w-7xl hidden my-auto space-y-4 sm:space-y-6 pb-6">
       
       <!-- Desktop Student Header Bar (Large screen view) -->
       <div class="hidden md:flex glass-card rounded-2xl p-6 items-center justify-between gap-4">
@@ -201,9 +201,23 @@
   </main>
 
   <!-- Footer -->
-  <footer class="relative z-10 w-full py-4 text-center text-xs text-gray-600 border-t border-white/5">
+  <footer id="portalFooter" class="relative z-10 w-full pt-4 pb-24 md:pb-4 text-center text-xs text-gray-600 border-t border-white/5">
     Sathyabama Institute of Science and Technology
   </footer>
+
+  <!-- Anime.js Import Map & Animation Engine -->
+  <script type="importmap">
+  {
+    "imports": {
+      "animejs": "./anime.esm.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import { animate, scrambleText } from 'animejs';
+    window.animate = animate;
+    window.scrambleText = scrambleText;
+  </script>
 
   <!-- Core Scripts -->
   <script src="portal-api.js"></script>
