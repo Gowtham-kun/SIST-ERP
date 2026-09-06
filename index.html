@@ -21,8 +21,8 @@
 <body class="bg-[#0f131c] text-[#dfe2ee] min-h-screen flex flex-col justify-between relative selection:bg-blue-600 selection:text-white overflow-x-hidden">
 
   <!-- WebThreads Animated Background Shader Canvas -->
-  <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-    <canvas id="threads-canvas" class="absolute inset-0 w-full h-full"></canvas>
+  <div id="canvasContainer" class="fixed inset-0 pointer-events-none z-0 overflow-hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100lvh;">
+    <canvas id="threads-canvas" class="absolute inset-0 w-full h-full" style="width: 100%; height: 100%; object-fit: cover;"></canvas>
     <div class="absolute inset-0 bg-[#0f131c]/30"></div>
   </div>
 
@@ -168,34 +168,6 @@
 
       <!-- Tab View Content Host -->
       <div id="dashboardTabContent"></div>
-
-      <!-- Dedicated Native Mobile Bottom Navigation Bar (Hidden on desktop, only appears when Dashboard is active) -->
-      <nav id="mobileBottomNav" class="md:hidden mobile-bottom-nav flex items-center justify-around px-2 py-1">
-        <button id="mobile-tab-btn-profile" onclick="setTab('profile')" class="mobile-nav-btn active">
-          <div class="nav-icon-wrapper">
-            <span class="material-symbols-outlined text-xl">person</span>
-          </div>
-          <span class="mt-0.5">Profile</span>
-        </button>
-        <button id="mobile-tab-btn-attendance" onclick="setTab('attendance')" class="mobile-nav-btn">
-          <div class="nav-icon-wrapper">
-            <span class="material-symbols-outlined text-xl">fact_check</span>
-          </div>
-          <span class="mt-0.5">Attendance</span>
-        </button>
-        <button id="mobile-tab-btn-cae" onclick="setTab('cae')" class="mobile-nav-btn">
-          <div class="nav-icon-wrapper">
-            <span class="material-symbols-outlined text-xl">grade</span>
-          </div>
-          <span class="mt-0.5">CAE Marks</span>
-        </button>
-        <button id="mobile-tab-btn-timetable" onclick="setTab('timetable')" class="mobile-nav-btn">
-          <div class="nav-icon-wrapper">
-            <span class="material-symbols-outlined text-xl">calendar_month</span>
-          </div>
-          <span class="mt-0.5">Timetable</span>
-        </button>
-      </nav>
     </section>
 
   </main>
@@ -204,6 +176,34 @@
   <footer id="portalFooter" class="relative z-10 w-full pt-4 pb-24 md:pb-4 text-center text-xs text-gray-600 border-t border-white/5">
     Sathyabama Institute of Science and Technology
   </footer>
+
+  <!-- Dedicated Native Mobile Bottom Navigation Bar (Hidden on desktop, only appears when Dashboard is active) -->
+  <nav id="mobileBottomNav" class="hidden mobile-bottom-nav items-center justify-around px-2 py-1">
+    <button id="mobile-tab-btn-profile" onclick="setTab('profile')" class="mobile-nav-btn active">
+      <div class="nav-icon-wrapper">
+        <span class="material-symbols-outlined text-xl">person</span>
+      </div>
+      <span class="mt-0.5">Profile</span>
+    </button>
+    <button id="mobile-tab-btn-attendance" onclick="setTab('attendance')" class="mobile-nav-btn">
+      <div class="nav-icon-wrapper">
+        <span class="material-symbols-outlined text-xl">fact_check</span>
+      </div>
+      <span class="mt-0.5">Attendance</span>
+    </button>
+    <button id="mobile-tab-btn-cae" onclick="setTab('cae')" class="mobile-nav-btn">
+      <div class="nav-icon-wrapper">
+        <span class="material-symbols-outlined text-xl">grade</span>
+      </div>
+      <span class="mt-0.5">CAE Marks</span>
+    </button>
+    <button id="mobile-tab-btn-timetable" onclick="setTab('timetable')" class="mobile-nav-btn">
+      <div class="nav-icon-wrapper">
+        <span class="material-symbols-outlined text-xl">calendar_month</span>
+      </div>
+      <span class="mt-0.5">Timetable</span>
+    </button>
+  </nav>
 
   <!-- Anime.js Import Map & Animation Engine -->
   <script type="importmap">

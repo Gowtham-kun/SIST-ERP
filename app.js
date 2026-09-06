@@ -195,20 +195,55 @@ function initWebThreads() {
   let targetActive = 0;
   let currActive = 0;
 
-  window.addEventListener('mousemove', (e) => {
+  // Track mouse movements on non-touch devices; ignore touch scroll events
+  window.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch') return;
     targetMouse[0] = e.clientX / window.innerWidth;
     targetMouse[1] = 1.0 - (e.clientY / window.innerHeight);
     targetActive = 1;
+  }, { passive: true });
+
+  window.addEventListener('pointerleave', () => {
+    targetActive = 0;
   });
 
+  let lastWidth = 0;
+  let lastHeight = 0;
+
   const syncSize = () => {
+    const curWidth = window.innerWidth;
+    const curHeight = window.innerHeight;
+
+    // Mobile address bar collapsing/expanding triggers resize events with small height changes.
+    // Reallocating canvas width/height clears the WebGL buffer (causing a flash/reload)
+    // and changes iResolution (causing shader wave relocation).
+    // Ignore resizes where width hasn't changed and height change is small (< 160px).
+    const widthChanged = Math.abs(curWidth - lastWidth) > 3;
+    const heightChange = Math.abs(curHeight - lastHeight);
+    const isMajorResize = widthChanged || heightChange > 160;
+
+    if (lastWidth > 0 && !isMajorResize) {
+      return;
+    }
+
+    lastWidth = curWidth;
+    lastHeight = curHeight;
+
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
+    // On mobile devices, ensure height covers screen dimensions without resizing during scroll
+    const targetHeight = Math.max(curHeight, window.screen?.height || curHeight);
+    const targetWidth = curWidth;
+
+    canvas.width = Math.round(targetWidth * dpr);
+    canvas.height = Math.round(targetHeight * dpr);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.uniform2f(uResLoc, canvas.width, canvas.height);
   };
   window.addEventListener('resize', syncSize);
+  window.addEventListener('orientationchange', () => {
+    lastWidth = 0;
+    setTimeout(syncSize, 100);
+  });
   syncSize();
 
   const t0 = performance.now();
@@ -278,6 +313,7 @@ async function executeLogin(regNumber, password, remember) {
 
     document.getElementById('loginSection').classList.add('hidden');
     document.getElementById('dashboardSection').classList.remove('hidden');
+    document.getElementById('mobileBottomNav')?.classList.remove('hidden');
     document.body.classList.add('dashboard-active');
     renderHeader();
     setTab('profile');
@@ -297,6 +333,7 @@ function handleSignOut() {
   PortalAPI.clearCredentials();
   appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
   document.getElementById('dashboardSection').classList.add('hidden');
+  document.getElementById('mobileBottomNav')?.classList.add('hidden');
   document.getElementById('loginSection').classList.remove('hidden');
   document.body.classList.remove('dashboard-active');
   document.getElementById('password').value = '';

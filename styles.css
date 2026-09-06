@@ -170,13 +170,28 @@ h1, h2, h3, h4, .font-headline {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 50;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
   background: rgba(15, 19, 28, 0.94);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   box-shadow: 0 -10px 25px -5px rgba(0, 0, 0, 0.6);
+  display: none !important;
+}
+
+@media (max-width: 767px) {
+  body.dashboard-active .mobile-bottom-nav:not(.hidden),
+  body:has(#dashboardSection:not(.hidden)) .mobile-bottom-nav:not(.hidden) {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .mobile-bottom-nav {
+    display: none !important;
+  }
 }
 
 .mobile-nav-btn {
@@ -269,6 +284,11 @@ body.dashboard-active footer,
 body:has(#dashboardSection:not(.hidden)) footer,
 #portalFooter {
   padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
+  pointer-events: none;
+}
+
+#portalFooter * {
+  pointer-events: auto;
 }
 
 @media (min-width: 768px) {
@@ -276,5 +296,6 @@ body:has(#dashboardSection:not(.hidden)) footer,
   body:has(#dashboardSection:not(.hidden)) footer,
   #portalFooter {
     padding-bottom: 1rem !important;
+    pointer-events: auto;
   }
 }
