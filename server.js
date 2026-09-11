@@ -584,8 +584,6 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     }
 
     const rawType = info.subjectType || info.type || slot.SubjectType || slot.subjectType || slot.Type || '';
-    const isPractical = /practical/i.test(String(rawType));
-    const type = isPractical ? 'PRACTICAL' : 'THEORY';
 
     schedule[day].push({
       hour: slot.Hour,
@@ -593,9 +591,7 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       subjectCode: code,
       subjectName: isBreak ? 'Morning Break' : (isLunch ? 'Lunch Break' : subjectName),
       staff: staff,
-      type: isBreak || isLunch ? '' : type,
-      subjectType: isBreak || isLunch ? '' : (rawType || (isPractical ? 'Practical' : 'THEORY')),
-      isLab: isBreak || isLunch ? false : isPractical,
+      rawSubjectType: rawType,
       isBreak,
       isLunch
     });
@@ -603,6 +599,43 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
 
   days.forEach(d => {
     schedule[d].sort((a, b) => a.hour - b.hour);
+    const daySlots = schedule[d];
+    for (let i = 0; i < daySlots.length; i++) {
+      const slot = daySlots[i];
+      if (slot.isBreak || slot.isLunch) {
+        slot.isLab = false;
+        slot.type = '';
+        slot.subjectType = '';
+        delete slot.rawSubjectType;
+        continue;
+      }
+
+      const hasLabInName = /\b(lab|laboratory)\b/i.test(slot.subjectName || '');
+      const hasPracticalComponent = /practical/i.test(String(slot.rawSubjectType || ''));
+
+      const prev = i > 0 ? daySlots[i - 1] : null;
+      const next = i < daySlots.length - 1 ? daySlots[i + 1] : null;
+
+      const isSameSub = (other) => {
+        if (!other || other.isBreak || other.isLunch) return false;
+        if (slot.subjectCode && other.subjectCode && slot.subjectCode.trim().toUpperCase() === other.subjectCode.trim().toUpperCase()) {
+          return true;
+        }
+        const n1 = (slot.subjectName || '').toLowerCase().replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim();
+        const n2 = (other.subjectName || '').toLowerCase().replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim();
+        return Boolean(n1 && n2 && n1 === n2);
+      };
+
+      const isConsecutivePrev = Boolean(prev && isSameSub(prev) && (prev.hour === slot.hour - 1));
+      const isConsecutiveNext = Boolean(next && isSameSub(next) && (next.hour === slot.hour + 1));
+
+      const isLab = Boolean(hasLabInName || (hasPracticalComponent && (isConsecutivePrev || isConsecutiveNext)));
+
+      slot.isLab = isLab;
+      slot.type = isLab ? 'PRACTICAL' : 'THEORY';
+      slot.subjectType = isLab ? 'Practical' : 'THEORY';
+      delete slot.rawSubjectType;
+    }
   });
 
   const finalSubjects = (subjectsDirectory && subjectsDirectory.length > 0)
@@ -612,7 +645,7 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
         { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
         { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr.R.BHAVANI' },
         { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
-        { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'AGILA HARSHINI T' },
+        { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'AGILA HARSHINI T' },
         { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr.E.Srividhya' },
         { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
       ];
@@ -631,7 +664,7 @@ function getVerifiedFallbackTimetable() {
     { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
     { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr.R.BHAVANI' },
     { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
-    { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'AGILA HARSHINI T' },
+    { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'AGILA HARSHINI T' },
     { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr.E.Srividhya' },
     { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
   ];
@@ -642,7 +675,7 @@ function getVerifiedFallbackTimetable() {
     'SCSB0B1301': { subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', staff: 'Ms. MADHUSHRI K' },
     'S13BLH21': { subjectName: 'Digital Logic Circuits', subjectType: 'Practical', staff: 'Dr.R.BHAVANI' },
     'SCSB1303': { subjectName: 'Theory of Computation', subjectType: 'THEORY', staff: 'Dr. NANCY NOELLA R S' },
-    'SISB4301': { subjectName: 'Universal Human Values', subjectType: 'Practical', staff: 'AGILA HARSHINI T' },
+    'SISB4301': { subjectName: 'Universal Human Values', subjectType: 'THEORY', staff: 'AGILA HARSHINI T' },
     'S12BLH31': { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr.E.Srividhya, Dr. S L JANY SHABU' }
   };
 
@@ -666,7 +699,7 @@ function getVerifiedFallbackTimetable() {
 
   const schedule = {};
   for (const [day, codes] of Object.entries(dayCodes)) {
-    schedule[day] = codes.map((code, idx) => {
+    const rawSlots = codes.map((code, idx) => {
       const h = headers[idx];
       if (code === 'BREAK') {
         return { hour: h.hour, time: h.time, subjectName: 'Morning Break', isBreak: true, label: 'Break' };
@@ -675,20 +708,49 @@ function getVerifiedFallbackTimetable() {
         return { hour: h.hour, time: h.time, subjectName: 'Lunch Break', isLunch: true, label: 'Lunch' };
       }
       const s = subMap[code] || { subjectName: code, subjectType: 'THEORY', staff: 'Faculty' };
-      const isPractical = /practical/i.test(String(s.subjectType));
       return {
         hour: h.hour,
         time: h.time,
         subjectCode: code,
         subjectName: s.subjectName,
         staff: s.staff,
-        type: isPractical ? 'PRACTICAL' : 'THEORY',
         subjectType: s.subjectType,
-        isLab: isPractical,
         isBreak: false,
         isLunch: false
       };
     });
+
+    for (let i = 0; i < rawSlots.length; i++) {
+      const slot = rawSlots[i];
+      if (slot.isBreak || slot.isLunch) {
+        slot.isLab = false;
+        slot.type = '';
+        continue;
+      }
+      const hasLabInName = /\b(lab|laboratory)\b/i.test(slot.subjectName || '');
+      const hasPracticalComponent = /practical/i.test(String(slot.subjectType || ''));
+
+      const prev = i > 0 ? rawSlots[i - 1] : null;
+      const next = i < rawSlots.length - 1 ? rawSlots[i + 1] : null;
+
+      const isSameSub = (other) => {
+        if (!other || other.isBreak || other.isLunch) return false;
+        if (slot.subjectCode && other.subjectCode && slot.subjectCode === other.subjectCode) return true;
+        const n1 = (slot.subjectName || '').toLowerCase().replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim();
+        const n2 = (other.subjectName || '').toLowerCase().replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim();
+        return Boolean(n1 && n2 && n1 === n2);
+      };
+
+      const isConsecutivePrev = Boolean(prev && isSameSub(prev) && (prev.hour === slot.hour - 1));
+      const isConsecutiveNext = Boolean(next && isSameSub(next) && (next.hour === slot.hour + 1));
+
+      const isLab = Boolean(hasLabInName || (hasPracticalComponent && (isConsecutivePrev || isConsecutiveNext)));
+
+      slot.isLab = isLab;
+      slot.type = isLab ? 'PRACTICAL' : 'THEORY';
+      slot.subjectType = isLab ? 'Practical' : 'THEORY';
+    }
+    schedule[day] = rawSlots;
   }
 
   return {
