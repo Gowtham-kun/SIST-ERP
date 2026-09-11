@@ -283,10 +283,18 @@ h1, h2, h3, h4, .font-headline {
     margin-top: auto !important;
     margin-bottom: auto !important;
   }
+}
 
-  .login-avatar-badge {
-    display: none !important;
-  }
+.login-avatar-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-avatar-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25);
 }
 
 /* Footer: by default (e.g. login screen), sits fully and cleanly at the bottom */
