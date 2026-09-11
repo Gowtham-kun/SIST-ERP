@@ -17,6 +17,12 @@
   <!-- Styling -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Vercel Web Analytics -->
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body class="bg-[#0f131c] text-[#dfe2ee] min-h-screen flex flex-col justify-between relative selection:bg-blue-600 selection:text-white overflow-x-hidden">
 
@@ -43,10 +49,10 @@
   </header>
 
   <!-- Main Container -->
-  <main class="relative z-10 flex-1 flex flex-col items-center justify-start md:justify-center w-full px-4 md:px-8 pt-2 pb-6 sm:py-8">
+  <main class="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-4 md:px-8 py-6 sm:py-8">
     
     <!-- LOGIN SECTION -->
-    <section id="loginSection" class="w-full max-w-[460px] mt-1 sm:mt-4 mb-auto md:my-auto">
+    <section id="loginSection" class="w-full max-w-[460px] my-auto">
       <div class="glass-card rounded-2xl p-4 sm:p-8 shadow-2xl relative overflow-hidden">
         <div class="text-center mb-2 sm:mb-6">
           <div class="login-avatar-badge hidden sm:inline-flex p-3 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 mb-3">

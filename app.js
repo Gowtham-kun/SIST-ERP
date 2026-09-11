@@ -987,6 +987,28 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
       </div>
     </div>`}
 
+    <!-- Institutional Advisory: Daily Attendance Projection Notice -->
+    <div class="glass-card rounded-2xl p-4 sm:p-4.5 border border-amber-500/25 bg-amber-500/[0.04] shadow-lg shadow-amber-950/10 flex items-start sm:items-center gap-3.5 sm:gap-4 transition-all">
+      <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0 shadow-inner">
+        <span class="material-symbols-outlined text-xl">warning</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-[10px] font-bold text-amber-400 uppercase tracking-widest font-mono">ATTENDANCE CALCULATION NOTICE</span>
+          <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/20 text-amber-200 border border-amber-500/30">
+            DAILY LOG PROJECTION
+          </span>
+        </div>
+        <p class="text-xs sm:text-sm text-gray-200 mt-1 leading-relaxed font-medium">
+          Subject attendance percentages are currently estimated using your verified daily attendance records mapped to your timetable.
+        </p>
+        <div class="flex items-center gap-1.5 text-[11px] text-amber-300/85 font-medium mt-1.5 flex-wrap">
+          <span class="material-symbols-outlined text-sm text-amber-400">schedule</span>
+          <span>Granular period-by-period (hourly) attendance tracking is under development and coming soon.</span>
+        </div>
+      </div>
+    </div>
+
     <!-- ── SECTION 1: THEORY COURSES ATTENDANCE ─────────────────────────────── -->
     <div class="space-y-4">
       <div class="flex items-center justify-between gap-4 border-b border-white/10 pb-3 flex-wrap">

@@ -807,6 +807,7 @@ app.post('/api/timetable', async (req, res) => {
   res.json({ success: true, timetable });
 });
 
+app.get('/_vercel/insights/script.js', (req, res) => res.type('application/javascript').send('// Vercel Insights local stub'));
 app.get('/api/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
