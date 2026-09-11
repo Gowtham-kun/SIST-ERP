@@ -26,7 +26,7 @@ The legacy Sathyabama ERP portal, while comprehensive in institutional records, 
 This project delivers a **ground-up modernization** of the university student experience:
 1. **Ultra-Fast Scraper Proxy Backend**: Directly interfaces with Sathyabama's REST API endpoints (`https://erp.sathyabama.ac.in/erp/api/v1.0/`), executing parallelized extraction pipelines to aggregate Student Dossier, Attendance, Continuous Assessment Exam (CAE) marks, and Academic Timetables in **under 700ms**.
 2. **Institutional Glassmorphism Client**: Built with pure Vanilla JavaScript (ES6+), custom WebGL2 GPU background shaders, Anime.js v4 cryptographic text scrambling, and tailored desktop/mobile responsive interfaces that match official university standards.
-3. **Smart Academic Utilities**: Mathematical attendance clearance calculations (85% university threshold), safe-to-miss vs. required-recovery class projection, timetable day-by-day and weekly grid matrices, and instant profile credential inspection.
+3. **Smart Academic Utilities**: Mathematical attendance clearance calculations (80% university threshold), safe-to-miss vs. required-recovery class projection, timetable day-by-day and weekly grid matrices, and instant profile credential inspection.
 
 ---
 
@@ -35,7 +35,7 @@ This project delivers a **ground-up modernization** of the university student ex
 | Module | Features & Capabilities |
 | :--- | :--- |
 | **🎓 Student Dossier** | Comprehensive civil and academic registration details: Roll Number, Register Number, Department, Batch, Semester, Section, Demographics, Blood Group, Hostel Residency, and Parent/Guardian registry with direct contact cards. |
-| **📊 Attendance Clearance** | Real-time calculation against the university's strict **85% eligibility threshold**. Automatically splits Theory and Practical courses, renders daily attendance calendars, and provides proactive warnings (*"Safe to miss X classes"* vs *"Cannot miss anymore class(es)"*). |
+| **📊 Attendance Clearance** | Real-time calculation against the university's strict **80% eligibility threshold**. Automatically splits Theory and Practical courses, renders daily attendance calendars, and provides proactive warnings (*"Safe to miss X classes"* vs *"Cannot miss anymore class(es)"*). |
 | **📝 CAE Exam Results** | Controller of Examinations marks statement for Continuous Assessment Exams (CAE 1 & CAE 2). Features automatic arrear detection, pass/fail status pills, and max/obtained mark tables. |
 | **🗓️ Academic Timetable** | Department schedule viewer supporting both **Day View** (with sticky period cards) and **Weekly Grid View** (with frozen day headers and horizontal matrix scrolling), along with a verified Course Instructor & Faculty directory. |
 | **📱 Native-App Mobile UI** | Dedicated bottom navigation dock (`Profile`, `Attendance`, `CAE Marks`, `Timetable`), floating identity bar, and touch-optimized layout built with CSS `env(safe-area-inset-bottom)` awareness. |
@@ -61,7 +61,7 @@ flowchart TD
         subgraph Scrapers ["Modular Scraper & Calculation Engines"]
             AuthScraper["Auth & Token Manager\n(MasterStudent/login)"]
             ProfileScraper["Multi-Stage Dossier Scraper\n(MasterStudent/view & fallbacks)"]
-            AttScraper["Attendance Reconstruction Engine\n(Daily Logs + 85% Math)"]
+            AttScraper["Attendance Reconstruction Engine\n(Daily Logs + 80% Math)"]
             CAEScraper["CAE Results Parser\n(CAEResult/studentCAEResult)"]
             TTScraper["Timetable Matrix Builder\n(TimeSet + StaffAllocation + Matrix)"]
         end
@@ -111,10 +111,10 @@ Sathyabama's official ERP calculates attendance using complex Angular client-sid
 - Computes exact attendance percentage:
   $$\text{Attendance \%} = \left( \frac{\text{Attended Days}}{\text{Total Working Days}} \right) \times 100$$
 - Injects recovery intelligence:
-  - If $\text{Attendance} \ge 85\%$: Calculates maximum safe classes to miss:
-    $$\text{Safe Misses} = \left\lfloor \frac{\text{Present} - 0.85 \times \text{Total}}{0.85} \right\rfloor$$
-  - If $\text{Attendance} < 85\%$: Calculates mandatory consecutive classes required:
-    $$\text{Classes Required} = \left\lceil \frac{0.85 \times \text{Total} - \text{Present}}{0.15} \right\rceil$$
+  - If $\text{Attendance} \ge 80\%$: Calculates maximum safe classes to miss:
+    $$\text{Safe Misses} = \left\lfloor \frac{\text{Present} - 0.80 \times \text{Total}}{0.80} \right\rfloor$$
+  - If $\text{Attendance} < 80\%$: Calculates mandatory consecutive classes required:
+    $$\text{Classes Required} = \left\lceil \frac{0.80 \times \text{Total} - \text{Present}}{0.20} \right\rceil$$
 
 ### 4. Timetable Matrix Reconstruction
 The timetable scraper links multiple fragmented institutional tables:
