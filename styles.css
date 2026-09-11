@@ -278,9 +278,9 @@ h1, h2, h3, h4, .font-headline {
     border-radius: 1rem !important;
   }
 
-  /* Elevate login card on mobile so both card and virtual keyboard remain visible */
+  /* Center login card vertically on mobile */
   #loginSection {
-    margin-top: 0.25rem !important;
+    margin-top: auto !important;
     margin-bottom: auto !important;
   }
 
