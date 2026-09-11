@@ -120,8 +120,9 @@ Sathyabama's official ERP calculates attendance using complex Angular client-sid
 The timetable scraper links multiple fragmented institutional tables:
 1. Calls `TimetableDetails/getProgrammeSectionAndTimeSetbyCourse` to obtain `TimeTableId` and `ProgrammeSectionId`.
 2. Calls `TimeSetSection/getcourseTimeSet` to parse period hours, lunch intervals, and morning break slots.
-3. Calls `TimeTableStaffAllocation/getSubjectHandlingStaffs` to retrieve staff associations, cross-referenced with our verified faculty directory.
+3. Calls `TimeTableStaffAllocation/getSubjectHandlingStaffs` to retrieve staff associations and authoritative `SubjectType` attributes (`THEORY` vs. `Practical`).
 4. Calls `TimetableDetails/getdatabyprogramme` to compile the complete 5-day weekly grid matrix.
+5. **Exact ERP Subject Type Classification**: Directly inspects the official ERP's `SubjectType` attribute—whenever the institutional record contains `"Practical"` in the subject type, the course is reliably classified as a Practical Laboratory (`[LAB]`) across all timetable matrices and attendance tracking, eliminating false lab classifications from consecutive theory periods.
 
 ---
 

@@ -720,27 +720,50 @@ function getEnrichedTimetable(rawTt) {
   const schedule = {};
   const days = tt.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+  // Pre-index subject types scraped from official college ERP
+  const subTypeLookup = {};
+  if (Array.isArray(tt.subjects)) {
+    tt.subjects.forEach(sub => {
+      const typeStr = String(sub.subjectType || sub.type || '').trim();
+      if (sub.subjectCode) {
+        subTypeLookup[sub.subjectCode.toUpperCase().trim()] = typeStr;
+      }
+      if (sub.subjectName) {
+        subTypeLookup[normalizeSubName(sub.subjectName)] = typeStr;
+        subTypeLookup[sub.subjectName.toUpperCase().trim()] = typeStr;
+      }
+    });
+  }
+
   days.forEach(day => {
     const rawSlots = tt.schedule?.[day] || [];
     const slots = rawSlots.map(s => ({ ...s }));
 
     for (let i = 0; i < slots.length; i++) {
-      if (slots[i].isBreak || slots[i].isLunch) continue;
-      const normName = normalizeSubName(slots[i].subjectName);
-
-      const prev = i > 0 ? slots[i - 1] : null;
-      const next = i < slots.length - 1 ? slots[i + 1] : null;
-
-      const isConsecutivePrev = prev && !prev.isBreak && !prev.isLunch && (prev.hour === slots[i].hour - 1) && normalizeSubName(prev.subjectName) === normName;
-      const isConsecutiveNext = next && !next.isBreak && !next.isLunch && (next.hour === slots[i].hour + 1) && normalizeSubName(next.subjectName) === normName;
-
-      if (isConsecutivePrev || isConsecutiveNext) {
-        slots[i].isLab = true;
-        slots[i].type = 'PRACTICAL';
-      } else {
+      if (slots[i].isBreak || slots[i].isLunch) {
         slots[i].isLab = false;
-        slots[i].type = 'THEORY';
+        slots[i].type = '';
+        continue;
       }
+
+      const code = (slots[i].subjectCode || '').toUpperCase().trim();
+      const normName = normalizeSubName(slots[i].subjectName);
+      const rawName = String(slots[i].subjectName || '').toUpperCase().trim();
+
+      // Official ERP Subject Type classification
+      const officialType = slots[i].subjectType
+        || slots[i].type
+        || (code ? subTypeLookup[code] : null)
+        || subTypeLookup[normName]
+        || subTypeLookup[rawName]
+        || '';
+
+      // Whenever our scraper detects "Practical" in the subject type in the official college ERP, that shows up as lab
+      const isPractical = /practical/i.test(String(officialType));
+
+      slots[i].isLab = isPractical;
+      slots[i].type = isPractical ? 'PRACTICAL' : 'THEORY';
+      slots[i].subjectType = officialType || (isPractical ? 'Practical' : 'THEORY');
     }
     schedule[day] = slots;
   });
@@ -1233,13 +1256,13 @@ function resolveStaffName(subjectName, staff) {
 
 function getClientFallbackTimetable() {
   const staffDirectory = [
-    { subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', staff: 'Dr. M PREM KUMAR' },
-    { subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', staff: 'Ms. MADHUSHRI K' },
-    { subjectName: 'Digital Logic Circuits', subjectType: 'Practical', staff: 'Dr. R. BHAVANI' },
-    { subjectName: 'Theory of Computation', subjectType: 'THEORY', staff: 'Dr. NANCY NOELLA R S' },
-    { subjectName: 'Universal Human Values', subjectType: 'Practical', staff: 'AGILA HARSHINI T' },
-    { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr. E. Srividhya' },
-    { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr. S L JANY SHABU' }
+    { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. M PREM KUMAR' },
+    { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
+    { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr. R. BHAVANI' },
+    { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
+    { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'AGILA HARSHINI T' },
+    { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. E. Srividhya' },
+    { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
   ];
 
   const subMap = {
@@ -1281,12 +1304,16 @@ function getClientFallbackTimetable() {
         return { hour: h.hour, time: h.time, subjectName: 'Lunch Break', isLunch: true, label: 'Lunch' };
       }
       const s = subMap[code] || { subjectName: code, subjectType: 'THEORY', staff: 'Faculty' };
+      const isPractical = /practical/i.test(String(s.subjectType));
       return {
         hour: h.hour,
         time: h.time,
+        subjectCode: code,
         subjectName: s.subjectName,
         staff: s.staff,
-        type: s.subjectType,
+        type: isPractical ? 'PRACTICAL' : 'THEORY',
+        subjectType: s.subjectType,
+        isLab: isPractical,
         isBreak: false,
         isLunch: false
       };
@@ -1361,7 +1388,7 @@ function renderTimetable() {
           <div class="min-w-0 flex-1">
             <h5 class="text-xs sm:text-sm font-semibold text-white truncate leading-tight">${formatSubjectName(s.subjectName)}</h5>
             <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-              <span class="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-full ${s.subjectType === 'PRACTICAL' ? 'bg-purple-500/15 text-purple-300 border border-purple-500/20' : 'bg-blue-500/15 text-blue-300 border border-blue-500/20'}">
+              <span class="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-full ${/practical/i.test(s.subjectType || s.type) ? 'bg-purple-500/15 text-purple-300 border border-purple-500/20' : 'bg-blue-500/15 text-blue-300 border border-blue-500/20'}">
                 ${s.subjectType || 'THEORY'}
               </span>
               <span class="text-[11px] sm:text-xs text-gray-400 truncate">${resolveStaffName(s.subjectName, s.staff)}</span>

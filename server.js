@@ -457,19 +457,28 @@ async function scrapeTimetable(token, studentId, studentInfo) {
       const name = (s.SubjectName || '').trim();
       const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
       const staffName = (s.StaffName || s.Staff || s.staffName || s.Staff_Name || s.FacultyName || VERIFIED_FACULTY_MAP[codeUpper] || VERIFIED_FACULTY_MAP[name.toUpperCase()] || '').trim();
-      const type = (s.SubjectType || 'THEORY').toUpperCase();
+      const rawType = (s.SubjectType || s.subjectType || s.Type || '').trim();
+      const isPractical = /practical/i.test(rawType);
+      const type = isPractical ? 'PRACTICAL' : 'THEORY';
+      const displaySubjectType = rawType || (isPractical ? 'Practical' : 'THEORY');
 
       if (staffName && staffName !== 'Staff') {
         subjectsDirectory.push({
+          subjectCode: code,
           subjectName: name || code,
-          subjectType: type,
+          subjectType: displaySubjectType,
+          type: type,
+          isLab: isPractical,
           staff: staffName
         });
       }
 
       const entry = {
+        subjectCode: code,
         subjectName: name || code,
-        subjectType: type,
+        subjectType: displaySubjectType,
+        type: type,
+        isLab: isPractical,
         staff: staffName
       };
 
@@ -574,12 +583,19 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
         || 'Faculty';
     }
 
+    const rawType = info.subjectType || info.type || slot.SubjectType || slot.subjectType || slot.Type || '';
+    const isPractical = /practical/i.test(String(rawType));
+    const type = isPractical ? 'PRACTICAL' : 'THEORY';
+
     schedule[day].push({
       hour: slot.Hour,
       time: slot.TimeFrom && slot.TimeTo ? `${slot.TimeFrom} - ${slot.TimeTo}` : defaultHours[slot.Hour - 1]?.time || '',
+      subjectCode: code,
       subjectName: isBreak ? 'Morning Break' : (isLunch ? 'Lunch Break' : subjectName),
       staff: staff,
-      type: info.subjectType || (slot.SubjectType === 1 ? 'THEORY' : 'PRACTICAL'),
+      type: isBreak || isLunch ? '' : type,
+      subjectType: isBreak || isLunch ? '' : (rawType || (isPractical ? 'Practical' : 'THEORY')),
+      isLab: isBreak || isLunch ? false : isPractical,
       isBreak,
       isLunch
     });
@@ -592,13 +608,13 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
   const finalSubjects = (subjectsDirectory && subjectsDirectory.length > 0)
     ? subjectsDirectory
     : [
-        { subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', staff: 'Dr.M PREM KUMAR' },
-        { subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', staff: 'Ms. MADHUSHRI K' },
-        { subjectName: 'Digital Logic Circuits', subjectType: 'Practical', staff: 'Dr.R.BHAVANI' },
-        { subjectName: 'Theory of Computation', subjectType: 'THEORY', staff: 'Dr. NANCY NOELLA R S' },
-        { subjectName: 'Universal Human Values', subjectType: 'Practical', staff: 'AGILA HARSHINI T' },
-        { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr.E.Srividhya' },
-        { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr. S L JANY SHABU' }
+        { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr.M PREM KUMAR' },
+        { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
+        { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr.R.BHAVANI' },
+        { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
+        { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'AGILA HARSHINI T' },
+        { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr.E.Srividhya' },
+        { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
       ];
 
   return {
@@ -611,13 +627,13 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
 
 function getVerifiedFallbackTimetable() {
   const staffDirectory = [
-    { subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', staff: 'Dr.M PREM KUMAR' },
-    { subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', staff: 'Ms. MADHUSHRI K' },
-    { subjectName: 'Digital Logic Circuits', subjectType: 'Practical', staff: 'Dr.R.BHAVANI' },
-    { subjectName: 'Theory of Computation', subjectType: 'THEORY', staff: 'Dr. NANCY NOELLA R S' },
-    { subjectName: 'Universal Human Values', subjectType: 'Practical', staff: 'AGILA HARSHINI T' },
-    { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr.E.Srividhya' },
-    { subjectName: 'Programming in Java', subjectType: 'PRACTICAL', staff: 'Dr. S L JANY SHABU' }
+    { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr.M PREM KUMAR' },
+    { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
+    { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr.R.BHAVANI' },
+    { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
+    { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'AGILA HARSHINI T' },
+    { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr.E.Srividhya' },
+    { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
   ];
 
   const subMap = {
@@ -659,12 +675,16 @@ function getVerifiedFallbackTimetable() {
         return { hour: h.hour, time: h.time, subjectName: 'Lunch Break', isLunch: true, label: 'Lunch' };
       }
       const s = subMap[code] || { subjectName: code, subjectType: 'THEORY', staff: 'Faculty' };
+      const isPractical = /practical/i.test(String(s.subjectType));
       return {
         hour: h.hour,
         time: h.time,
+        subjectCode: code,
         subjectName: s.subjectName,
         staff: s.staff,
-        type: s.subjectType,
+        type: isPractical ? 'PRACTICAL' : 'THEORY',
+        subjectType: s.subjectType,
+        isLab: isPractical,
         isBreak: false,
         isLunch: false
       };
