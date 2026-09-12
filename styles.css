@@ -274,8 +274,21 @@ h1, h2, h3, h4, .font-headline {
     -webkit-overflow-scrolling: touch;
   }
   
+  /* Optimize backdrop blur from 20px to 8px on mobile to eliminate GPU fillrate lag */
   .glass-card {
     border-radius: 1rem !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+  }
+
+  .glass-nav {
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+  }
+
+  .mobile-bottom-nav {
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
   }
 
   /* Center login card vertically on mobile */
@@ -283,6 +296,12 @@ h1, h2, h3, h4, .font-headline {
     margin-top: auto !important;
     margin-bottom: auto !important;
   }
+}
+
+#canvasContainer {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .login-avatar-badge {

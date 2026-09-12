@@ -1,6 +1,6 @@
 /**
  * Sathyabama Student Portal — API Client & Auth Manager
- * No mock data. All responses come from the live Express/Playwright backend.
+ * No mock data. All responses come from the live Express REST proxy backend.
  */
 
 const STORAGE_KEY = 'sathy_credentials_v2';
@@ -27,7 +27,7 @@ const PortalAPI = {
     localStorage.removeItem(TOKEN_KEY);
   },
 
-  // ── Send credentials to Express backend → Playwright scraper ────────────
+  // ── Send credentials to Express backend → Direct ERP REST gateway ────────
   // Returns: { success, token, student, data: { studentDetails, attendanceSummary, caeResults } }
   async login(regNumber, password, remember) {
     const resp = await fetch('/api/login', {

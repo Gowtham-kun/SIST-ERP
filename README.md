@@ -6,7 +6,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.19.2-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
 [![WebGL 2.0](https://img.shields.io/badge/WebGL-2.0%20Shaders-990000?style=for-the-badge&logo=webgl&logoColor=white)](https://www.khronos.org/webgl/)
-[![Anime.js](https://img.shields.io/badge/Anime.js-v4.0-ff4b4b?style=for-the-badge&logo=javascript&logoColor=white)](https://animejs.com/)
+[![Vanilla JS](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](https://developer.mozilla.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 <p align="center">
@@ -25,8 +25,8 @@ The legacy Sathyabama ERP portal, while comprehensive in institutional records, 
 
 This project delivers a **ground-up modernization** of the university student experience:
 1. **Ultra-Fast Scraper Proxy Backend**: Directly interfaces with Sathyabama's REST API endpoints (`https://erp.sathyabama.ac.in/erp/api/v1.0/`), executing parallelized extraction pipelines to aggregate Student Dossier, Attendance, Continuous Assessment Exam (CAE) marks, and Academic Timetables in **under 700ms**.
-2. **Institutional Glassmorphism Client**: Built with pure Vanilla JavaScript (ES6+), custom WebGL2 GPU background shaders, Anime.js v4 cryptographic text scrambling, and tailored desktop/mobile responsive interfaces that match official university standards.
-3. **Smart Academic Utilities**: Mathematical attendance clearance calculations (80% university threshold), safe-to-miss vs. required-recovery class projection, timetable day-by-day and weekly grid matrices, and instant profile credential inspection.
+2. **Institutional Glassmorphism Client**: Built with pure Vanilla JavaScript (ES6+), custom WebGL2 GPU background shaders, native zero-dependency cryptographic text scrambling, and tailored desktop/mobile responsive interfaces that match official university standards.
+3. **Smart Academic Utilities**: Mathematical attendance clearance calculations (80% university threshold), safe-to-miss vs. required-recovery class projection, purely dynamic timetable day-by-day and weekly grid matrices (supporting all college years and batches), and instant profile credential inspection.
 
 ---
 
@@ -50,7 +50,7 @@ flowchart TD
     subgraph Client ["Client Browser (Desktop / Mobile)"]
         UI["Modern Web Interface\n(Vanilla JS + TailwindCSS + CSS Variables)"]
         WebGL["WebGL2 Shader Canvas\n(WebThreads Background Engine)"]
-        Anime["Anime.js v4\n(ScrambleText Cipher Effect)"]
+        Cipher["Native Cipher Loop\n(ScrambleText Decrypt Effect)"]
         API_Client["PortalAPI Client SDK\n(portal-api.js)"]
     end
 
@@ -131,25 +131,20 @@ The timetable scraper links multiple fragmented institutional tables:
 ### WebGL2 WebThreads Background
 Rather than static images or heavy video loops, the background is powered by a custom WebGL2 fragment shader:
 - **Sine Wave Filaments**: Mathematically computed filaments with exponential glow falloff and dynamic alpha blending.
+- **Mobile Hardware Acceleration & Fillrate Optimization**: On mobile devices, DPR is clamped to `1.0`, precision set to `mediump float`, and thread loops reduced to 4. Active touch scrolling automatically suspends shader rendering via a passive scroll listener, returning 100% of GPU rendering cycles to the mobile browser compositor for zero-lag, 60/120 FPS buttery touch scrolling.
 - **Scroll Resizing Stabilization**: Mobile address bars hide and reveal during scrolling, changing `window.innerHeight` by 40–80px. Standard canvas implementations flicker and destroy the WebGL buffer on every resize. Our engine implements a **160px height-delta threshold check**, caching the buffer to `Math.max(curHeight, window.screen.height)` to guarantee **zero buffer resets, zero flickers, and zero curve shifts** while scrolling.
 - **Touch Gesture Isolation**: Distinguishes between desktop pointer interaction and mobile touch drag events, preventing touch scrolls from distorting the shader threads.
 
-### Anime.js v4 Cryptographic Text Scrambling
-Upon navigating to the Student Dossier, the student's legal name decrypts dynamically via Anime.js v4's `scrambleText`:
+### Native Cryptographic Text Scrambling
+Upon navigating to the Student Dossier, the student's legal name decrypts dynamically via a native, zero-dependency character reveal loop (saving 408KB of external animation libraries):
 ```javascript
-import { animate, scrambleText } from 'animejs';
-
-animate(targetElement, {
-  innerHTML: scrambleText(realStudentName, {
-    characters: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  }),
-  duration: 900,
-  ease: 'outQuad'
-});
+const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+// Decrypts characters sequentially at 25ms intervals with automatic cleanup
 ```
 
 ### Native Mobile Stacking Architecture
 - **Dedicated DOM Tree**: The mobile bottom navigation bar (`#mobileBottomNav`) is hoisted directly to the `<body>` root with `z-index: 9999 !important`, completely isolated from inner `<main>` container stacking contexts.
+- **Glassmorphic Fillrate Budgeting**: Mobile card backdrops are tuned to `blur(8px)` (down from `blur(20px)` on desktop), preventing mobile GPU fillrate thrashing while preserving stunning translucent aesthetics.
 - **Click-Through Footer Clearance**: University footers with large bottom clearance margins (`7.5rem`) are styled with `pointer-events: none`, ensuring that all touch events at the bottom of the screen cleanly trigger navigation actions without dead zones.
 
 ---
@@ -235,8 +230,7 @@ Open `http://localhost:3000` in your web browser, enter your official register n
 
 ```text
 SIST-ERP/
-├── app.js               # Frontend application controller & WebGL/Anime.js logic
-├── anime.esm.js         # Anime.js v4 ESM build for high-performance animations
+├── app.js               # Frontend application controller & WebGL/UI logic
 ├── favicon.png          # High-resolution university portal icon
 ├── index.html           # Main semantic HTML5 single-page application shell
 ├── package.json         # Project manifest, scripts, and runtime dependencies

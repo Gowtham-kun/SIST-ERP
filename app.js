@@ -16,7 +16,9 @@ function initWebThreads() {
   const canvas = document.getElementById('threads-canvas');
   if (!canvas) return;
 
-  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false });
+  const isMobile = window.innerWidth < 768 || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'low-power' });
   if (!gl) return;
 
   const vsSource = `#version 300 es
@@ -26,7 +28,7 @@ function initWebThreads() {
   }`;
 
   const fsSource = `#version 300 es
-  precision highp float;
+  precision mediump float;
   uniform vec2 iResolution;
   uniform float iTime;
   uniform float uSpeed;
@@ -57,7 +59,7 @@ function initWebThreads() {
   out vec4 fragColor;
 
   #define TAU 6.28318530718
-  #define MAX_THREADS 10
+  #define MAX_THREADS 8
 
   float glow(float x, float str, float dist) {
     return dist / pow(max(x, 1e-4), str);
@@ -163,7 +165,7 @@ function initWebThreads() {
   const uResLoc = gl.getUniformLocation(program, 'iResolution');
   const uTimeLoc = gl.getUniformLocation(program, 'iTime');
   gl.uniform1f(gl.getUniformLocation(program, 'uSpeed'), 0.2);
-  gl.uniform1f(gl.getUniformLocation(program, 'uThreadCount'), 6.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uThreadCount'), isMobile ? 4.0 : 6.0);
   gl.uniform1f(gl.getUniformLocation(program, 'uFrequency'), 5.0);
   gl.uniform1f(gl.getUniformLocation(program, 'uSpread'), 0.18);
   gl.uniform1f(gl.getUniformLocation(program, 'uTaper'), 1.0);
@@ -187,7 +189,7 @@ function initWebThreads() {
 
   const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
   gl.uniform1f(gl.getUniformLocation(program, 'uMouseStrength'), 0.3);
-  gl.uniform1f(gl.getUniformLocation(program, 'uEnableMouse'), 1.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uEnableMouse'), isMobile ? 0.0 : 1.0);
   const uMouseActiveLoc = gl.getUniformLocation(program, 'uMouseActive');
 
   let targetMouse = [0.5, 0.5];
@@ -195,17 +197,19 @@ function initWebThreads() {
   let targetActive = 0;
   let currActive = 0;
 
-  // Track mouse movements on non-touch devices; ignore touch scroll events
-  window.addEventListener('pointermove', (e) => {
-    if (e.pointerType === 'touch') return;
-    targetMouse[0] = e.clientX / window.innerWidth;
-    targetMouse[1] = 1.0 - (e.clientY / window.innerHeight);
-    targetActive = 1;
-  }, { passive: true });
+  // Track mouse movements on non-touch devices only
+  if (!isMobile) {
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      targetMouse[0] = e.clientX / window.innerWidth;
+      targetMouse[1] = 1.0 - (e.clientY / window.innerHeight);
+      targetActive = 1;
+    }, { passive: true });
 
-  window.addEventListener('pointerleave', () => {
-    targetActive = 0;
-  });
+    window.addEventListener('pointerleave', () => {
+      targetActive = 0;
+    });
+  }
 
   let lastWidth = 0;
   let lastHeight = 0;
@@ -214,10 +218,6 @@ function initWebThreads() {
     const curWidth = window.innerWidth;
     const curHeight = window.innerHeight;
 
-    // Mobile address bar collapsing/expanding triggers resize events with small height changes.
-    // Reallocating canvas width/height clears the WebGL buffer (causing a flash/reload)
-    // and changes iResolution (causing shader wave relocation).
-    // Ignore resizes where width hasn't changed and height change is small (< 160px).
     const widthChanged = Math.abs(curWidth - lastWidth) > 3;
     const heightChange = Math.abs(curHeight - lastHeight);
     const isMajorResize = widthChanged || heightChange > 160;
@@ -229,8 +229,8 @@ function initWebThreads() {
     lastWidth = curWidth;
     lastHeight = curHeight;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    // On mobile devices, ensure height covers screen dimensions without resizing during scroll
+    // Mobile DPR clamped to 1.0 for massive fillrate savings and elimination of GPU stutter
+    const dpr = isMobile ? 1.0 : Math.min(window.devicePixelRatio || 1, 2);
     const targetHeight = Math.max(curHeight, window.screen?.height || curHeight);
     const targetWidth = curWidth;
 
@@ -246,18 +246,44 @@ function initWebThreads() {
   });
   syncSize();
 
+  // Touch scroll throttling: pause canvas render during active scrolling to free 100% GPU bandwidth
+  let isScrolling = false;
+  let scrollTimeout = null;
+  window.addEventListener('scroll', () => {
+    isScrolling = true;
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      isScrolling = false;
+    }, 120);
+  }, { passive: true });
+
+  const targetFps = isMobile ? 30 : 60;
+  const frameInterval = 1000 / targetFps;
+  let lastFrameTime = 0;
+
   const t0 = performance.now();
   function render(t) {
-    gl.uniform1f(uTimeLoc, (t - t0) * 0.001);
-    currMouse[0] += 0.05 * (targetMouse[0] - currMouse[0]);
-    currMouse[1] += 0.05 * (targetMouse[1] - currMouse[1]);
-    currActive += 0.05 * (targetActive - currActive);
+    requestAnimationFrame(render);
 
-    gl.uniform2f(uMouseLoc, currMouse[0], currMouse[1]);
-    gl.uniform1f(uMouseActiveLoc, currActive);
+    // Pause when page is hidden or during touch scroll to guarantee butter-smooth 60/120fps UI
+    if (document.hidden) return;
+    if (isMobile && isScrolling) return;
+
+    const elapsed = t - lastFrameTime;
+    if (elapsed < frameInterval) return;
+    lastFrameTime = t - (elapsed % frameInterval);
+
+    gl.uniform1f(uTimeLoc, (t - t0) * 0.001);
+    if (!isMobile) {
+      currMouse[0] += 0.05 * (targetMouse[0] - currMouse[0]);
+      currMouse[1] += 0.05 * (targetMouse[1] - currMouse[1]);
+      currActive += 0.05 * (targetActive - currActive);
+
+      gl.uniform2f(uMouseLoc, currMouse[0], currMouse[1]);
+      gl.uniform1f(uMouseActiveLoc, currActive);
+    }
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    requestAnimationFrame(render);
   }
   requestAnimationFrame(render);
 }
@@ -361,15 +387,25 @@ function showStatus(el, type, msg) {
 
 function animateStudentName(target, name) {
   if (!target || !name || name === '[404]' || name === '—') return;
-  const anim = window.animate || (window.anime && window.anime.animate);
-  const scramble = window.scrambleText || (window.anime && window.anime.scrambleText);
-  if (anim && scramble) {
-    try {
-      anim(target, { innerHTML: scramble({ text: name }) });
-      return;
-    } catch (e) {}
-  }
-  target.textContent = name;
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const finalStr = String(name);
+  let iter = 0;
+  clearInterval(target._scrambleTimer);
+  target._scrambleTimer = setInterval(() => {
+    target.textContent = finalStr
+      .split('')
+      .map((letter, index) => {
+        if (letter === ' ') return ' ';
+        if (index < iter) return finalStr[index];
+        return chars[Math.floor(Math.random() * chars.length)];
+      })
+      .join('');
+    if (iter >= finalStr.length) {
+      clearInterval(target._scrambleTimer);
+      target.textContent = finalStr;
+    }
+    iter += 1 / 2;
+  }, 25);
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -1496,6 +1532,10 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
         </div>` :
         daySchedule.map(slot => {
           if (slot.isBreak || slot.isLunch) {
+            const defaultLabel = slot.isLunch ? 'Lunch Break' : 'Morning Break';
+            const displayTitle = (slot.subjectName && slot.subjectName !== 'Class' && slot.subjectName !== 'BREAK' && slot.subjectName !== 'LUNCH')
+              ? formatSubjectName(slot.subjectName)
+              : defaultLabel;
             return `
             <div class="rounded-2xl p-3 sm:p-3.5 px-3 sm:px-4 border border-amber-500/20 bg-amber-500/5 flex items-center justify-between gap-3">
               <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
@@ -1503,8 +1543,8 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
                   <span class="material-symbols-outlined text-base sm:text-lg">${slot.isLunch ? 'restaurant' : 'coffee'}</span>
                 </div>
                 <div class="min-w-0">
-                  <span class="text-xs sm:text-sm font-semibold text-amber-200 block truncate">${formatSubjectName(slot.subjectName)}</span>
-                  <span class="block text-[10px] sm:text-xs text-amber-400/70 mt-0.5">${slot.time}</span>
+                  <span class="text-xs sm:text-sm font-semibold text-amber-200 block truncate">${displayTitle}</span>
+                  <span class="block text-[10px] sm:text-xs text-amber-400/70 mt-0.5">${slot.time || ''}</span>
                 </div>
               </div>
               <span class="text-[9px] sm:text-[10px] font-semibold px-2 sm:px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 tracking-wider flex-shrink-0">
@@ -1551,15 +1591,17 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
 }
 
 function renderWeeklyGrid(tt, days, todayName) {
-  const headers = tt.headers || [
-    { hour: 1, time: '09:00 - 10:00' },
-    { hour: 2, time: '10:00 - 11:00' },
-    { hour: 3, time: '11:00 - 11:15', isBreak: true },
-    { hour: 4, time: '11:15 - 12:15', isLunch: true },
-    { hour: 5, time: '12:15 - 01:15' },
-    { hour: 6, time: '01:15 - 02:15' },
-    { hour: 7, time: '02:15 - 03:15' }
-  ];
+  const headers = (Array.isArray(tt.headers) && tt.headers.length > 0)
+    ? tt.headers
+    : [
+      { hour: 1, time: '09:00 - 10:00' },
+      { hour: 2, time: '10:00 - 11:00' },
+      { hour: 3, time: '11:00 - 11:15', isBreak: true, label: 'Break' },
+      { hour: 4, time: '11:15 - 12:15', isLunch: true, label: 'Lunch' },
+      { hour: 5, time: '12:15 - 01:15' },
+      { hour: 6, time: '01:15 - 02:15' },
+      { hour: 7, time: '02:15 - 03:15' }
+    ];
 
   return `
   <div class="glass-card rounded-2xl border border-white/10 overflow-hidden">
@@ -1586,8 +1628,8 @@ function renderWeeklyGrid(tt, days, todayName) {
             </th>
             ${headers.map(h => `
             <th class="p-2 sm:p-3 text-center border-b border-white/10 ${h.isBreak || h.isLunch ? 'w-20 sm:w-24 bg-amber-500/5 text-amber-300' : 'min-w-[125px] sm:min-w-[140px]'}">
-              <div class="text-[10px] sm:text-[11px] font-bold text-gray-300">${h.isBreak ? 'Break' : (h.isLunch ? 'Lunch' : `P${h.hour}`)}</div>
-              <div class="text-[9px] sm:text-[10px] text-gray-500 font-normal mt-0.5">${h.time.replace(/am|pm/gi, '').trim()}</div>
+              <div class="text-[10px] sm:text-[11px] font-bold text-gray-300">${h.label || (h.isBreak ? 'Break' : (h.isLunch ? 'Lunch' : `P${h.hour}`))}</div>
+              <div class="text-[9px] sm:text-[10px] text-gray-500 font-normal mt-0.5">${(h.time || '').replace(/am|pm/gi, '').trim()}</div>
             </th>`).join('')}
           </tr>
         </thead>
