@@ -166,7 +166,7 @@ function initWebThreads() {
   const uResLoc = gl.getUniformLocation(program, 'iResolution');
   const uTimeLoc = gl.getUniformLocation(program, 'iTime');
   gl.uniform1f(gl.getUniformLocation(program, 'uSpeed'), 0.2);
-  gl.uniform1f(gl.getUniformLocation(program, 'uThreadCount'), isMobile ? 4.0 : 6.0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uThreadCount'), 6.0);
   gl.uniform1f(gl.getUniformLocation(program, 'uFrequency'), 5.0);
   gl.uniform1f(gl.getUniformLocation(program, 'uSpread'), 0.18);
   gl.uniform1f(gl.getUniformLocation(program, 'uTaper'), 1.0);
@@ -230,9 +230,8 @@ function initWebThreads() {
     lastWidth = curWidth;
     lastHeight = curHeight;
 
-    // Mobile DPR set to 0.70 for optimal fillrate, zero thermal throttling, and buttery smooth 60fps
-    // Bilinear GPU scaling on the soft ambient glow looks virtually identical to native resolution
-    const dpr = isMobile ? 0.70 : Math.min(window.devicePixelRatio || 1, 1.5);
+    // Full crisp high-DPI resolution matching desktop (up to 2x Retina) without mobile downscaling
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const targetHeight = Math.max(curHeight, window.screen?.height || curHeight);
     const targetWidth = curWidth;
 
