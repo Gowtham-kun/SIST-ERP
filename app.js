@@ -761,28 +761,28 @@ function getEnrichedTimetable(rawTt) {
 
   const headerMap = new Map();
   if (Array.isArray(tt.headers)) {
-    tt.headers.forEach(h => headerMap.set(h.hour, h));
+    tt.headers.filter(h => h.hour <= 10).forEach(h => headerMap.set(h.hour, h));
   }
 
   days.forEach(day => {
     const rawSlots = tt.schedule?.[day] || [];
-    const slots = rawSlots.map(s => ({ ...s }));
+    const slots = rawSlots.filter(s => !s.hour || s.hour <= 10).map(s => ({ ...s }));
     slots.sort((a, b) => (a.hour || 0) - (b.hour || 0));
 
     for (let i = 0; i < slots.length; i++) {
       const hInfo = headerMap.get(slots[i].hour);
-      const isBreakSlot = Boolean(
-        slots[i].isBreak ||
-        hInfo?.isBreak ||
-        slots[i].subjectCode === 'BREAK' ||
-        /break|interval|recess/i.test(slots[i].subjectName)
-      );
       const isLunchSlot = Boolean(
-        !isBreakSlot && (
-          slots[i].isLunch ||
-          hInfo?.isLunch ||
-          slots[i].subjectCode === 'LUNCH' ||
-          /lunch/i.test(slots[i].subjectName)
+        slots[i].isLunch ||
+        hInfo?.isLunch ||
+        slots[i].subjectCode === 'LUNCH' ||
+        /lunch|dinner|meal/i.test(slots[i].subjectName)
+      );
+      const isBreakSlot = Boolean(
+        !isLunchSlot && (
+          slots[i].isBreak ||
+          hInfo?.isBreak ||
+          slots[i].subjectCode === 'BREAK' ||
+          /break|interval|recess|tea/i.test(slots[i].subjectName)
         )
       );
 
@@ -1548,9 +1548,9 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
         daySchedule.map(slot => {
           if (slot.isBreak || slot.isLunch) {
             const defaultLabel = slot.isLunch ? 'Lunch Break' : 'Morning Break';
-            const displayTitle = (slot.subjectName && slot.subjectName !== 'Class' && slot.subjectName !== 'BREAK' && slot.subjectName !== 'LUNCH')
-              ? formatSubjectName(slot.subjectName)
-              : defaultLabel;
+            const displayTitle = slot.isLunch
+              ? (/lunch/i.test(slot.subjectName || '') ? formatSubjectName(slot.subjectName) : 'Lunch Break')
+              : (/break|interval/i.test(slot.subjectName || '') ? formatSubjectName(slot.subjectName) : defaultLabel);
             return `
             <div class="rounded-2xl p-3 sm:p-3.5 px-3 sm:px-4 border border-amber-500/20 bg-amber-500/5 flex items-center justify-between gap-3">
               <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
@@ -1607,7 +1607,7 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
 
 function renderWeeklyGrid(tt, days, todayName) {
   const headers = (Array.isArray(tt.headers) && tt.headers.length > 0)
-    ? tt.headers
+    ? tt.headers.filter(h => !h.hour || h.hour <= 10)
     : [
       { hour: 1, time: '09:00 - 10:00' },
       { hour: 2, time: '10:00 - 11:00' },
@@ -1651,7 +1651,7 @@ function renderWeeklyGrid(tt, days, todayName) {
         <tbody class="divide-y divide-white/5 text-xs">
           ${days.map(d => {
             const isToday = d === todayName;
-            const slots = tt.schedule?.[d] || [];
+            const slots = (tt.schedule?.[d] || []).filter(s => !s.hour || s.hour <= 10);
             return `
             <tr class="hover:bg-white/[0.03] transition-colors ${isToday ? 'bg-blue-500/5' : ''}">
               <!-- Sticky Day Column Cell -->
