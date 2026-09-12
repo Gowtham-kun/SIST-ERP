@@ -538,7 +538,44 @@ async function scrapeTimetable(token, studentId, studentInfo) {
   return getVerifiedFallbackTimetable();
 }
 
-function detectBreakOrLunch(item, subjectName, subjectCode) {
+function parseTimeMinutes(tStr) {
+  if (!tStr || typeof tStr !== 'string') return null;
+  const cleaned = tStr.trim().toLowerCase();
+  const m = cleaned.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!m) return null;
+  let hours = parseInt(m[1], 10);
+  const minutes = parseInt(m[2], 10);
+  const ampm = m[4];
+  if (ampm === 'pm' && hours < 12) hours += 12;
+  if (ampm === 'am' && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+}
+
+function getSlotDurationMinutes(timeStr, fromStr, toStr) {
+  let fromMin = parseTimeMinutes(fromStr);
+  let toMin = parseTimeMinutes(toStr);
+
+  if (fromMin === null || toMin === null) {
+    if (timeStr && timeStr.includes('-')) {
+      const parts = timeStr.split('-');
+      fromMin = parseTimeMinutes(parts[0]);
+      toMin = parseTimeMinutes(parts[1]);
+    }
+  }
+
+  if (fromMin !== null && toMin !== null) {
+    let diff = toMin - fromMin;
+    if (diff < 0) diff += 24 * 60;
+    return diff;
+  }
+  return null;
+}
+
+function detectBreakOrLunch(item, subjectName, subjectCode, fromStr, toStr, timeStr) {
+  const from = fromStr || item?.TimeFrom || item?.FromTime || item?.StartTime || '';
+  const to = toStr || item?.TimeTo || item?.ToTime || item?.EndTime || '';
+  const time = timeStr || (from && to ? `${from} - ${to}` : '');
+
   const nameStr = [
     item?.HourName, item?.TypeName, item?.Name, item?.Description,
     subjectName, subjectCode
@@ -554,17 +591,41 @@ function detectBreakOrLunch(item, subjectName, subjectCode) {
   const isBreakNamed = /\b(break|interval|tea|recess)\b/i.test(nameStr);
   const isLunchNamed = /\b(lunch|dinner|meal)\b/i.test(nameStr);
 
-  const isLunch = isLunchFlag || isLunchNamed;
-  const isBreak = !isLunch && (isBreakFlag || isBreakNamed);
+  let isLunch = isLunchFlag || isLunchNamed;
+  let isBreak = !isLunch && (isBreakFlag || isBreakNamed);
 
-  return { isBreak, isLunch };
+  // Duration check: any period <= 25 mins is definitively an interval/break (e.g. 11:00:00 - 11:15:00 is 15 mins)
+  const duration = getSlotDurationMinutes(time, from, to);
+  if (!isLunch && !isBreak && duration !== null && duration > 0 && duration <= 25) {
+    isBreak = true;
+  }
+
+  return { isBreak, isLunch, duration };
 }
 
 function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory) {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const dayNames = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday' };
 
-  // Dynamically resolve period headers and times from TimeSet / TimeTableArray
+  // 1. Tally academic classes scheduled for each hour across all days in matrixList
+  const academicCountPerHour = new Map();
+  if (Array.isArray(matrixList)) {
+    matrixList.forEach(slot => {
+      const h = Number(slot.Hour);
+      if (!h || isNaN(h)) return;
+      const code = (slot.SubjectCode || '').trim();
+      const name = (slot.SubjectName || '').trim();
+      const isExplicitBreakLunch = /break|lunch|interval|recess/i.test(`${code} ${name}`);
+      const isAcademicCode = Boolean(code && !/^(break|lunch|interval|recess|free|nil|na|null|0|-)$/i.test(code) && !isExplicitBreakLunch);
+      const isAcademicName = Boolean(name && !/^(break|lunch|interval|recess|free|nil|na|null|class)$/i.test(name) && !isExplicitBreakLunch);
+
+      if (isAcademicCode || isAcademicName) {
+        academicCountPerHour.set(h, (academicCountPerHour.get(h) || 0) + 1);
+      }
+    });
+  }
+
+  // 2. Build initial hours map from TimeSet / TimeTableArray
   const dynamicHoursMap = new Map();
 
   if (Array.isArray(timeTableArray) && timeTableArray.length > 0) {
@@ -574,55 +635,45 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       const from = (h.TimeFrom || h.FromTime || h.StartTime || '').trim();
       const to = (h.TimeTo || h.ToTime || h.EndTime || '').trim();
       const timeStr = from && to ? `${from} - ${to}` : (from || to || '');
-      const { isBreak, isLunch } = detectBreakOrLunch(h);
       const hourName = (h.HourName || h.TypeName || h.Name || '').trim();
 
       dynamicHoursMap.set(hourNum, {
         hour: hourNum,
+        from,
+        to,
         time: timeStr,
-        isBreak,
-        isLunch,
-        label: isLunch ? 'Lunch' : (isBreak ? 'Break' : (hourName || `P${hourNum}`))
+        hourName,
+        isBreakFlag: Boolean(h.IsBreak || h.isBreak),
+        isLunchFlag: Boolean(h.IsLunch || h.isLunch)
       });
     });
   }
 
-  // Cross-reference with matrixList to capture all actual slots and timings
+  // Cross-reference with matrixList timings if timeTableArray was incomplete
   if (Array.isArray(matrixList)) {
     matrixList.forEach(slot => {
       const hourNum = Number(slot.Hour);
       if (!hourNum || isNaN(hourNum)) return;
-
       const from = (slot.TimeFrom || '').trim();
       const to = (slot.TimeTo || '').trim();
-      const timeStr = from && to ? `${from} - ${to}` : (from || to || '');
-      const subName = (slot.SubjectName || '').trim();
-      const subCode = (slot.SubjectCode || '').trim();
-      const { isBreak: slotBreak, isLunch: slotLunch } = detectBreakOrLunch(slot, subName, subCode);
+      const timeStr = from && to ? `${from} - ${to}` : '';
 
       if (!dynamicHoursMap.has(hourNum)) {
         dynamicHoursMap.set(hourNum, {
           hour: hourNum,
+          from,
+          to,
           time: timeStr,
-          isBreak: slotBreak,
-          isLunch: slotLunch,
-          label: slotLunch ? 'Lunch' : (slotBreak ? 'Break' : `P${hourNum}`)
+          hourName: `P${hourNum}`,
+          isBreakFlag: false,
+          isLunchFlag: false
         });
       } else {
         const existing = dynamicHoursMap.get(hourNum);
-        if (!existing.time && timeStr) existing.time = timeStr;
-        const isAcademic = subCode && !/^(break|lunch|interval|recess)$/i.test(subCode) && !slotBreak && !slotLunch;
-        if (isAcademic) {
-          existing.isBreak = false;
-          existing.isLunch = false;
-          existing.label = `P${hourNum}`;
-        } else if (slotLunch) {
-          existing.isLunch = true;
-          existing.isBreak = false;
-          existing.label = 'Lunch';
-        } else if (slotBreak) {
-          existing.isBreak = true;
-          existing.label = 'Break';
+        if (!existing.time && timeStr) {
+          existing.from = from;
+          existing.to = to;
+          existing.time = timeStr;
         }
       }
     });
@@ -631,18 +682,63 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
   // Baseline fallback if no timing structure was returned
   if (dynamicHoursMap.size === 0) {
     const fallbackDefaults = [
-      { hour: 1, time: '09:00 am - 10:00 am', isBreak: false, isLunch: false, label: 'P1' },
-      { hour: 2, time: '10:00 am - 11:00 am', isBreak: false, isLunch: false, label: 'P2' },
-      { hour: 3, time: '11:00 am - 11:15 am', isBreak: true,  isLunch: false, label: 'Break' },
-      { hour: 4, time: '11:15 am - 12:15 pm', isBreak: false, isLunch: true,  label: 'Lunch' },
-      { hour: 5, time: '12:15 pm - 01:15 pm', isBreak: false, isLunch: false, label: 'P5' },
-      { hour: 6, time: '01:15 pm - 02:15 pm', isBreak: false, isLunch: false, label: 'P6' },
-      { hour: 7, time: '02:15 pm - 03:15 pm', isBreak: false, isLunch: false, label: 'P7' }
+      { hour: 1, time: '09:00 am - 10:00 am', from: '09:00 am', to: '10:00 am', hourName: 'P1' },
+      { hour: 2, time: '10:00 am - 11:00 am', from: '10:00 am', to: '11:00 am', hourName: 'P2' },
+      { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break' },
+      { hour: 4, time: '11:15 am - 12:15 pm', from: '11:15 am', to: '12:15 pm', hourName: 'Lunch' },
+      { hour: 5, time: '12:15 pm - 01:15 pm', from: '12:15 pm', to: '01:15 pm', hourName: 'P5' },
+      { hour: 6, time: '01:15 pm - 02:15 pm', from: '01:15 pm', to: '02:15 pm', hourName: 'P6' },
+      { hour: 7, time: '02:15 pm - 03:15 pm', from: '02:15 pm', to: '03:15 pm', hourName: 'P7' }
     ];
     fallbackDefaults.forEach(h => dynamicHoursMap.set(h.hour, h));
   }
 
-  const dynamicHeaders = Array.from(dynamicHoursMap.values()).sort((a, b) => a.hour - b.hour);
+  // 3. Dynamic Break and Lunch evaluation for EVERY period across any college year
+  dynamicHoursMap.forEach((hourObj, hourNum) => {
+    const academicCount = academicCountPerHour.get(hourNum) || 0;
+    const from = hourObj.from || '';
+    const to = hourObj.to || '';
+    const timeStr = hourObj.time || '';
+    const hourName = hourObj.hourName || '';
+
+    const { isBreak: detectedBreak, isLunch: detectedLunch, duration } = detectBreakOrLunch(
+      hourObj, hourName, '', from, to, timeStr
+    );
+
+    let isBreak = detectedBreak;
+    let isLunch = detectedLunch;
+
+    // A period with duration <= 25 mins is definitively an interval/break (e.g. 11:00:00 - 11:15:00 is 15 mins)
+    if (!isLunch && !isBreak && duration !== null && duration > 0 && duration <= 25) {
+      isBreak = true;
+    }
+
+    // A period with 0 academic classes across the week during midday (11:00 AM - 2:30 PM) is Lunch
+    if (!isBreak && !isLunch && academicCount === 0) {
+      const startMin = parseTimeMinutes(from) || (timeStr.includes('-') ? parseTimeMinutes(timeStr.split('-')[0]) : null);
+      if (startMin !== null && startMin >= 660 && startMin <= 870) {
+        isLunch = true;
+      } else if (hourNum === 3) {
+        isBreak = true;
+      } else if (hourNum === 4) {
+        isLunch = true;
+      }
+    }
+
+    hourObj.isBreak = Boolean(isBreak);
+    hourObj.isLunch = Boolean(isLunch);
+    hourObj.label = isLunch ? 'Lunch' : (isBreak ? 'Break' : (hourName || `P${hourNum}`));
+  });
+
+  const dynamicHeaders = Array.from(dynamicHoursMap.values())
+    .sort((a, b) => a.hour - b.hour)
+    .map(h => ({
+      hour: h.hour,
+      time: h.time,
+      isBreak: Boolean(h.isBreak),
+      isLunch: Boolean(h.isLunch),
+      label: h.label
+    }));
 
   const VERIFIED_FACULTY_MAP = {
     'SMTB1302': 'Dr.M PREM KUMAR',
@@ -669,6 +765,28 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     const hourNum = Number(slot.Hour);
     if (!hourNum || isNaN(hourNum)) return;
 
+    const hourInfo = dynamicHoursMap.get(hourNum) || {};
+    const isBreak = Boolean(hourInfo.isBreak);
+    const isLunch = Boolean(hourInfo.isLunch);
+
+    // If this period is Break or Lunch, populate as clean break/lunch slot
+    if (isBreak || isLunch) {
+      daySlotsMap[day].set(hourNum, {
+        hour: hourNum,
+        time: hourInfo.time || (slot.TimeFrom && slot.TimeTo ? `${slot.TimeFrom} - ${slot.TimeTo}` : ''),
+        subjectCode: isLunch ? 'LUNCH' : 'BREAK',
+        subjectName: isLunch ? 'Lunch Break' : 'Morning Break',
+        staff: '',
+        rawSubjectType: '',
+        isBreak,
+        isLunch,
+        isLab: false,
+        type: '',
+        subjectType: ''
+      });
+      return;
+    }
+
     const code = (slot.SubjectCode || '').trim();
     const codeUpper = code.toUpperCase();
     const codeAlt = codeUpper.replace(/O/g, '0');
@@ -682,24 +800,12 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       || {};
 
     const rawSubjectName = info.subjectName || name || code || '';
-    const hourInfo = dynamicHoursMap.get(hourNum) || {};
-
-    const { isBreak: detectedBreak, isLunch: detectedLunch } = detectBreakOrLunch(slot, rawSubjectName, code);
-    const isAcademic = code && !/^(break|lunch|interval|recess)$/i.test(code) && !detectedBreak && !detectedLunch;
-
-    const isLunch = !isAcademic && (detectedLunch || (hourInfo.isLunch && !rawSubjectName));
-    const isBreak = !isAcademic && !isLunch && (detectedBreak || (hourInfo.isBreak && !rawSubjectName));
-
-    let subjectName = rawSubjectName || (isLunch ? 'Lunch Break' : (isBreak ? 'Morning Break' : 'Class'));
-    if (isLunch && !/lunch/i.test(subjectName)) subjectName = 'Lunch Break';
-    if (isBreak && !/break|interval|recess/i.test(subjectName)) subjectName = 'Morning Break';
-
     let staff = info.staff || slot.StaffName || slot.Staff || '';
     if (!staff || staff === 'Staff' || staff === '—') {
       staff = VERIFIED_FACULTY_MAP[codeUpper]
         || VERIFIED_FACULTY_MAP[codeAlt]
-        || VERIFIED_FACULTY_MAP[subjectName.toUpperCase().trim()]
-        || (isBreak || isLunch ? '' : 'Faculty');
+        || VERIFIED_FACULTY_MAP[rawSubjectName.toUpperCase().trim()]
+        || (rawSubjectName ? 'Faculty' : '');
     }
 
     const timeStr = slot.TimeFrom && slot.TimeTo
@@ -711,12 +817,12 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     daySlotsMap[day].set(hourNum, {
       hour: hourNum,
       time: timeStr,
-      subjectCode: isLunch ? 'LUNCH' : (isBreak ? 'BREAK' : code),
-      subjectName,
-      staff: isBreak || isLunch ? '' : staff,
-      rawSubjectType: isBreak || isLunch ? '' : rawType,
-      isBreak,
-      isLunch
+      subjectCode: code,
+      subjectName: rawSubjectName || 'Class',
+      staff: staff || 'Faculty',
+      rawSubjectType: rawType,
+      isBreak: false,
+      isLunch: false
     });
   });
 
@@ -733,7 +839,10 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
             staff: '',
             rawSubjectType: '',
             isBreak: h.isBreak,
-            isLunch: h.isLunch
+            isLunch: h.isLunch,
+            isLab: false,
+            type: '',
+            subjectType: ''
           });
         }
       }

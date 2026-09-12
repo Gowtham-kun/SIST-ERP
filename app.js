@@ -246,17 +246,6 @@ function initWebThreads() {
   });
   syncSize();
 
-  // Touch scroll throttling: pause canvas render during active scrolling to free 100% GPU bandwidth
-  let isScrolling = false;
-  let scrollTimeout = null;
-  window.addEventListener('scroll', () => {
-    isScrolling = true;
-    clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => {
-      isScrolling = false;
-    }, 120);
-  }, { passive: true });
-
   const targetFps = isMobile ? 30 : 60;
   const frameInterval = 1000 / targetFps;
   let lastFrameTime = 0;
@@ -265,9 +254,8 @@ function initWebThreads() {
   function render(t) {
     requestAnimationFrame(render);
 
-    // Pause when page is hidden or during touch scroll to guarantee butter-smooth 60/120fps UI
+    // Keep animating smoothly while tab is active
     if (document.hidden) return;
-    if (isMobile && isScrolling) return;
 
     const elapsed = t - lastFrameTime;
     if (elapsed < frameInterval) return;
@@ -771,15 +759,42 @@ function getEnrichedTimetable(rawTt) {
     });
   }
 
+  const headerMap = new Map();
+  if (Array.isArray(tt.headers)) {
+    tt.headers.forEach(h => headerMap.set(h.hour, h));
+  }
+
   days.forEach(day => {
     const rawSlots = tt.schedule?.[day] || [];
     const slots = rawSlots.map(s => ({ ...s }));
     slots.sort((a, b) => (a.hour || 0) - (b.hour || 0));
 
     for (let i = 0; i < slots.length; i++) {
-      if (slots[i].isBreak || slots[i].isLunch) {
+      const hInfo = headerMap.get(slots[i].hour);
+      const isBreakSlot = Boolean(
+        slots[i].isBreak ||
+        hInfo?.isBreak ||
+        slots[i].subjectCode === 'BREAK' ||
+        /break|interval|recess/i.test(slots[i].subjectName)
+      );
+      const isLunchSlot = Boolean(
+        !isBreakSlot && (
+          slots[i].isLunch ||
+          hInfo?.isLunch ||
+          slots[i].subjectCode === 'LUNCH' ||
+          /lunch/i.test(slots[i].subjectName)
+        )
+      );
+
+      if (isBreakSlot || isLunchSlot) {
+        slots[i].isBreak = isBreakSlot;
+        slots[i].isLunch = isLunchSlot;
+        slots[i].subjectName = isLunchSlot ? 'Lunch Break' : 'Morning Break';
+        slots[i].subjectCode = isLunchSlot ? 'LUNCH' : 'BREAK';
+        slots[i].staff = '';
         slots[i].isLab = false;
         slots[i].type = '';
+        slots[i].subjectType = '';
         continue;
       }
 
