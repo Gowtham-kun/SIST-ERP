@@ -7,7 +7,6 @@
 [![Express](https://img.shields.io/badge/Express-4.19.2-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
 [![WebGL 2.0](https://img.shields.io/badge/WebGL-2.0%20Shaders-990000?style=for-the-badge&logo=webgl&logoColor=white)](https://www.khronos.org/webgl/)
 [![Vanilla JS](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](https://developer.mozilla.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 <p align="center">
   <b>A high-performance, native-grade modern web portal and reverse-engineered REST proxy for Sathyabama Institute of Science and Technology (Deemed to be University).</b>
@@ -247,13 +246,9 @@ SIST-ERP/
 
 - **Zero Credential Retention**: Student passwords and session tokens are **never written to disk, databases, or logs**.
 - **Ephemeral Pass-Through**: All credentials are used exclusively in-flight to authenticate directly with Sathyabama's official servers.
-- **Client-Side Storage**: Credentials are only stored locally in the student's browser `localStorage` if the **"Remember Me"** checkbox is explicitly selected.
+- **Client-Side Storage**: Student passwords are **never stored** in browser storage. Only the Register Number is remembered locally if the **"Remember Register Number"** checkbox is explicitly selected.
 
 ---
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
 
 <div align="center">
   <sub>Built with ❤️ for the students of Sathyabama Institute of Science and Technology.</sub>
