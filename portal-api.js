@@ -1,50 +1,109 @@
 /**
- * Sathyabama Student Portal — API Client & Auth Manager
- * No mock data. All responses come from the live Express REST proxy backend.
+ * Sathyabama Student Portal — Secure API Client & Auth Manager
+ * Hardened for CWE-312 / OWASP A02: Passwords are NEVER persisted in browser storage.
  */
 
-const STORAGE_KEY = 'sathy_credentials_v2';
-const TOKEN_KEY   = 'sathy_access_token';
+const REMEMBERED_REG_KEY = 'sathy_remembered_regno';
+const LEGACY_STORAGE_KEY = 'sathy_credentials_v2';
+const TOKEN_KEY          = 'sathy_access_token';
 
 const PortalAPI = {
 
-  // ── Persist credentials locally ──────────────────────────────────────────
-  saveCredentials(regNumber, password) {
+  // ── Secure Local Persistence (Register Number Only, Never Password) ─────
+  saveRememberedRegNo(regNumber) {
     try {
-      localStorage.setItem(STORAGE_KEY, btoa(JSON.stringify({ regNumber, password })));
-    } catch (e) { /* storage blocked */ }
+      if (regNumber && typeof regNumber === 'string') {
+        localStorage.setItem(REMEMBERED_REG_KEY, regNumber.trim());
+      }
+      // Purge legacy cleartext credential storage if still present
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch { /* storage blocked / private browsing */ }
   },
 
-  getStoredCredentials() {
+  getRememberedRegNo() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(atob(raw)) : null;
+      // Purge legacy cleartext storage unconditionally
+      if (localStorage.getItem(LEGACY_STORAGE_KEY)) {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+      return localStorage.getItem(REMEMBERED_REG_KEY) || null;
     } catch { return null; }
   },
 
+  clearRememberedRegNo() {
+    try {
+      localStorage.removeItem(REMEMBERED_REG_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch { /* storage blocked */ }
+  },
+
+  // Backward compatibility helper for remembered login pre-fill
+  getStoredCredentials() {
+    const reg = this.getRememberedRegNo();
+    return reg ? { regNumber: reg, password: '' } : null;
+  },
+
+  clearSession() {
+    try {
+      sessionStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch { /* storage blocked */ }
+  },
+
   clearCredentials() {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(TOKEN_KEY);
+    this.clearSession();
   },
 
   // ── Send credentials to Express backend → Direct ERP REST gateway ────────
-  // Returns: { success, token, student, data: { studentDetails, attendanceSummary, caeResults } }
   async login(regNumber, password, remember) {
-    const resp = await fetch('/api/login', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ regNumber, password })
-    });
+    const cleanReg = String(regNumber || '').trim();
+    const cleanPass = String(password || '');
 
-    const payload = await resp.json();
-
-    if (!payload.success) {
-      throw new Error(payload.message || 'Authentication failed.');
+    if (!cleanReg || !cleanPass) {
+      throw new Error('Register Number and Password are required.');
     }
 
-    if (remember) this.saveCredentials(regNumber, password);
-    localStorage.setItem(TOKEN_KEY, payload.token);
+    let resp;
+    try {
+      resp = await fetch('/api/login', {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ regNumber: cleanReg, password: cleanPass })
+      });
+    } catch {
+      throw new Error('Cannot connect to portal server. Please ensure the local server is running on http://localhost:3000.');
+    }
+
+    let payload;
+    try {
+      payload = await resp.json();
+    } catch {
+      throw new Error('Unexpected server response format. Please try again.');
+    }
+
+    if (!resp.ok || !payload.success) {
+      throw new Error(payload.message || 'Authentication failed. Please check your credentials.');
+    }
+
+    // Persist only the Register Number if requested; never the password
+    if (remember) {
+      this.saveRememberedRegNo(cleanReg);
+    } else {
+      this.clearRememberedRegNo();
+    }
+
+    // Store access token in sessionStorage for tab-scoped session security
+    try {
+      if (payload.token) {
+        sessionStorage.setItem(TOKEN_KEY, payload.token);
+      }
+    } catch { /* storage blocked */ }
 
     return payload;   // caller gets: { token, student, data }
   }
 };
+

@@ -7,8 +7,15 @@ let appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Mo
 
 document.addEventListener('DOMContentLoaded', () => {
   initWebThreads();
-  const stored = PortalAPI.getStoredCredentials();
-  if (stored) autoLogin(stored.regNumber, stored.password);
+  const rememberedReg = PortalAPI.getRememberedRegNo();
+  if (rememberedReg) {
+    const regInput = document.getElementById('regNumber');
+    const remCheck = document.getElementById('rememberMe');
+    if (regInput) regInput.value = rememberedReg;
+    if (remCheck) remCheck.checked = true;
+    const passInput = document.getElementById('password');
+    if (passInput) passInput.focus();
+  }
 });
 
 // ── WebThreads Shader Component (React Bits Adaptation for Vanilla WebGL2) ────
@@ -299,21 +306,28 @@ function initWebThreads() {
   requestAnimationFrame(render);
 }
 
+// HTML entity sanitizer to prevent Cross-Site Scripting (XSS / CWE-79)
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const esc = escapeHtml;
+
 // Helper fallback function: returns clean minimalist '—' if field is missing, null, undefined, empty, or placeholder dash
 function val(v) {
   if (v === null || v === undefined) return '—';
   const str = String(v).trim();
   if (str === '' || str === 'null' || str === 'undefined' || str === '-' || str === '[404]' || str === '—') return '—';
-  return str;
+  return escapeHtml(str);
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-async function autoLogin(regNumber, password) {
-  document.getElementById('regNumber').value = regNumber;
-  document.getElementById('password').value  = password;
-  await executeLogin(regNumber, password, true);
-}
-
 async function handleLoginSubmit(e) {
   e.preventDefault();
   const reg  = document.getElementById('regNumber').value.trim();
@@ -367,14 +381,19 @@ async function executeLogin(regNumber, password, remember) {
 }
 
 function handleSignOut() {
-  PortalAPI.clearCredentials();
+  PortalAPI.clearSession();
   appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
   document.getElementById('dashboardSection').classList.add('hidden');
   document.getElementById('mobileBottomNav')?.classList.add('hidden');
   document.getElementById('loginSection').classList.remove('hidden');
   document.body.classList.remove('dashboard-active');
   document.getElementById('password').value = '';
-  document.getElementById('regNumber').value = '';
+
+  const remembered = PortalAPI.getRememberedRegNo();
+  const regInput = document.getElementById('regNumber');
+  if (regInput) {
+    regInput.value = remembered || '';
+  }
 
   const btn = document.getElementById('submitBtn');
   if (btn) {
@@ -961,12 +980,12 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
             <h4 class="text-sm sm:text-base font-bold text-white leading-snug break-words flex items-center gap-1.5 flex-wrap">
-              <span>${s.rawName}</span>
+              <span>${esc(s.rawName)}</span>
               ${isLabCourse ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">[LAB]</span>' : ''}
             </h4>
             <div class="flex items-center gap-1.5 text-xs text-gray-400 mt-1">
               <span class="material-symbols-outlined text-sm text-gray-500">person</span>
-              <span class="truncate">${s.staff || 'Faculty'}</span>
+              <span class="truncate">${esc(s.staff || 'Faculty')}</span>
             </div>
           </div>
           <span class="text-[9px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${isLabCourse ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}">
@@ -1290,16 +1309,16 @@ function renderCAE() {
           <div class="glass-card rounded-xl p-3 border border-white/5 space-y-2">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0 flex-1">
-                <h4 class="text-xs font-bold text-white leading-snug">${r.name}</h4>
-                <span class="text-[10px] text-blue-400 font-mono">${r.code}</span>
+                <h4 class="text-xs font-bold text-white leading-snug">${esc(r.name)}</h4>
+                <span class="text-[10px] text-blue-400 font-mono">${esc(r.code)}</span>
               </div>
-              <span class="badge-pill text-[10px] px-2 py-0.5 flex-shrink-0 ${r.status==='PASS'?'badge-pass':'badge-warning'}">${r.status}</span>
+              <span class="badge-pill text-[10px] px-2 py-0.5 flex-shrink-0 ${r.status==='PASS'?'badge-pass':'badge-warning'}">${esc(r.status)}</span>
             </div>
             <div class="flex items-center justify-between text-xs pt-1 border-t border-white/5">
               <span class="text-gray-400 text-[11px]">Marks Scored</span>
               <div class="flex items-baseline gap-1 font-mono">
-                <span class="text-base font-black ${r.status==='PASS'?'text-emerald-400':'text-amber-400'}">${r.marksObtained}</span>
-                <span class="text-[11px] text-gray-500">/ ${r.maxMarks}</span>
+                <span class="text-base font-black ${r.status==='PASS'?'text-emerald-400':'text-amber-400'}">${Number(r.marksObtained) || 0}</span>
+                <span class="text-[11px] text-gray-500">/ ${Number(r.maxMarks) || 0}</span>
               </div>
             </div>
           </div>`).join('')}
@@ -1314,11 +1333,11 @@ function renderCAE() {
             <tbody class="divide-y divide-white/5">
               ${rows.map(r=>`
               <tr class="hover:bg-white/5 transition-colors">
-                <td class="p-3 text-blue-400 font-semibold">${r.code}</td>
-                <td class="p-3 text-white font-medium">${r.name}</td>
-                <td class="p-3">${r.maxMarks}</td>
-                <td class="p-3 font-bold text-white">${r.marksObtained}</td>
-                <td class="p-3"><span class="badge-pill ${r.status==='PASS'?'badge-pass':'badge-warning'}">${r.status}</span></td>
+                <td class="p-3 text-blue-400 font-semibold">${esc(r.code)}</td>
+                <td class="p-3 text-white font-medium">${esc(r.name)}</td>
+                <td class="p-3">${Number(r.maxMarks) || 0}</td>
+                <td class="p-3 font-bold text-white">${Number(r.marksObtained) || 0}</td>
+                <td class="p-3"><span class="badge-pill ${r.status==='PASS'?'badge-pass':'badge-warning'}">${esc(r.status)}</span></td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -1331,7 +1350,7 @@ function renderCAE() {
       <span class="text-2xl">⚠️</span>
       <div>
         <span class="text-xs text-gray-400 uppercase tracking-wider block">CAE Arrears (CAE 1)</span>
-        <span class="text-white font-bold">${c.arrearDetails.totalArrears} subject(s) below passing marks — ${c.arrearDetails.history.join(', ')}</span>
+        <span class="text-white font-bold">${c.arrearDetails.totalArrears} subject(s) below passing marks — ${(c.arrearDetails.history || []).map(esc).join(', ')}</span>
       </div>
     </div>` : `
     <div class="glass-card rounded-2xl p-5 flex items-center gap-4 border border-emerald-500/30 bg-emerald-500/5">
@@ -1493,7 +1512,7 @@ function renderTimetable() {
         <div class="flex items-center gap-2 flex-wrap">
           <span class="material-symbols-outlined text-blue-400 text-lg sm:text-xl">event_available</span>
           <h3 class="text-lg sm:text-xl font-bold text-white tracking-wide">Class Timetable</h3>
-          <span class="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">Section ${sectionName}</span>
+          <span class="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">Section ${esc(sectionName)}</span>
         </div>
       </div>
 
@@ -1528,12 +1547,12 @@ function renderTimetable() {
             <span class="material-symbols-outlined text-base">person</span>
           </div>
           <div class="min-w-0 flex-1">
-            <h5 class="text-xs sm:text-sm font-semibold text-white truncate leading-tight">${formatSubjectName(s.subjectName)}</h5>
+            <h5 class="text-xs sm:text-sm font-semibold text-white truncate leading-tight">${esc(formatSubjectName(s.subjectName))}</h5>
             <div class="flex items-center gap-2 mt-1.5 flex-wrap">
               <span class="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-full ${/practical/i.test(s.subjectType || s.type) ? 'bg-purple-500/15 text-purple-300 border border-purple-500/20' : 'bg-blue-500/15 text-blue-300 border border-blue-500/20'}">
-                ${s.subjectType || 'THEORY'}
+                ${esc(s.subjectType || 'THEORY')}
               </span>
-              <span class="text-[11px] sm:text-xs text-gray-400 truncate">${resolveStaffName(s.subjectName, s.staff)}</span>
+              <span class="text-[11px] sm:text-xs text-gray-400 truncate">${esc(resolveStaffName(s.subjectName, s.staff))}</span>
             </div>
           </div>
         </div>`).join('')}
@@ -1553,9 +1572,9 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
         const isSelected = d === activeDay;
         const isToday = d === todayName;
         return `
-        <button onclick="setTimetableDay('${d}')"
+        <button onclick="setTimetableDay('${esc(d)}')"
           class="px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 sm:gap-2 flex-shrink-0 ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/5'}">
-          <span>${d}</span>
+          <span>${esc(d)}</span>
           ${isToday ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-bold border border-emerald-500/30">TODAY</span>' : ''}
         </button>`;
       }).join('')}
@@ -1566,7 +1585,7 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
       ${daySchedule.length === 0 ? `
         <div class="glass-card rounded-2xl p-12 text-center text-gray-400">
           <span class="material-symbols-outlined text-4xl mb-2 text-gray-500">event_busy</span>
-          <p class="text-sm font-medium">No schedule mapped for ${activeDay}.</p>
+          <p class="text-sm font-medium">No schedule mapped for ${esc(activeDay)}.</p>
         </div>` :
         daySchedule.map(slot => {
           if (slot.isBreak || slot.isLunch) {
@@ -1581,8 +1600,8 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
                   <span class="material-symbols-outlined text-base sm:text-lg">${slot.isLunch ? 'restaurant' : 'coffee'}</span>
                 </div>
                 <div class="min-w-0">
-                  <span class="text-xs sm:text-sm font-semibold text-amber-200 block truncate">${displayTitle}</span>
-                  <span class="block text-[10px] sm:text-xs text-amber-400/70 mt-0.5">${slot.time || ''}</span>
+                  <span class="text-xs sm:text-sm font-semibold text-amber-200 block truncate">${esc(displayTitle)}</span>
+                  <span class="block text-[10px] sm:text-xs text-amber-400/70 mt-0.5">${esc(slot.time || '')}</span>
                 </div>
               </div>
               <span class="text-[9px] sm:text-[10px] font-semibold px-2 sm:px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 tracking-wider flex-shrink-0">
@@ -1596,27 +1615,27 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
           <div class="glass-card rounded-2xl p-3.5 sm:p-5 border border-white/10 hover:border-blue-500/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
             <div class="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0 flex-1">
               <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${isPractical ? 'bg-purple-500/10 border border-purple-500/20 text-purple-400' : 'bg-blue-500/10 border border-blue-500/20 text-blue-400'} flex flex-col items-center justify-center flex-shrink-0">
-                <span class="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">P${slot.hour}</span>
+                <span class="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">P${Number(slot.hour) || 1}</span>
                 <span class="material-symbols-outlined text-sm sm:text-base">${isPractical ? 'biotech' : 'school'}</span>
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap mb-1">
                   <h4 class="text-sm sm:text-base font-bold text-white tracking-wide leading-snug break-words flex items-center gap-1.5 flex-wrap">
-                    <span>${formatSubjectName(slot.subjectName)}</span>
+                    <span>${esc(formatSubjectName(slot.subjectName))}</span>
                     ${slot.isLab ? '<span class="px-2 py-0.5 rounded text-[10px] sm:text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono">[LAB]</span>' : ''}
                   </h4>
                   <span class="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-full ${isPractical ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}">
-                    ${slot.isLab ? 'LAB' : (slot.type || 'THEORY')}
+                    ${slot.isLab ? 'LAB' : esc(slot.type || 'THEORY')}
                   </span>
                 </div>
                 <div class="flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs text-gray-400 flex-wrap">
                   <span class="inline-flex items-center gap-1">
                     <span class="material-symbols-outlined text-sm text-gray-500">person</span>
-                    <span class="text-gray-300 font-medium">${resolveStaffName(slot.subjectName, slot.staff)}</span>
+                    <span class="text-gray-300 font-medium">${esc(resolveStaffName(slot.subjectName, slot.staff))}</span>
                   </span>
                   <span class="inline-flex items-center gap-1">
                     <span class="material-symbols-outlined text-sm text-gray-500">schedule</span>
-                    <span>${slot.time}</span>
+                    <span>${esc(slot.time)}</span>
                   </span>
                 </div>
               </div>
@@ -1666,8 +1685,8 @@ function renderWeeklyGrid(tt, days, todayName) {
             </th>
             ${headers.map(h => `
             <th class="p-2 sm:p-3 text-center border-b border-white/10 ${h.isBreak || h.isLunch ? 'w-20 sm:w-24 bg-amber-500/5 text-amber-300' : 'min-w-[125px] sm:min-w-[140px]'}">
-              <div class="text-[10px] sm:text-[11px] font-bold text-gray-300">${h.label || (h.isBreak ? 'Break' : (h.isLunch ? 'Lunch' : `P${h.hour}`))}</div>
-              <div class="text-[9px] sm:text-[10px] text-gray-500 font-normal mt-0.5">${(h.time || '').replace(/am|pm/gi, '').trim()}</div>
+              <div class="text-[10px] sm:text-[11px] font-bold text-gray-300">${esc(h.label || (h.isBreak ? 'Break' : (h.isLunch ? 'Lunch' : `P${h.hour}`)))}</div>
+              <div class="text-[9px] sm:text-[10px] text-gray-500 font-normal mt-0.5">${esc((h.time || '').replace(/am|pm/gi, '').trim())}</div>
             </th>`).join('')}
           </tr>
         </thead>
@@ -1680,7 +1699,7 @@ function renderWeeklyGrid(tt, days, todayName) {
               <!-- Sticky Day Column Cell -->
               <td class="p-2.5 sm:p-3.5 pl-3 sm:pl-5 font-bold sticky-day-col border-b border-white/5 ${isToday ? 'text-blue-400' : 'text-white'} align-middle">
                 <div class="flex items-center gap-1.5">
-                  <span class="text-xs sm:text-sm whitespace-nowrap">${d}</span>
+                  <span class="text-xs sm:text-sm whitespace-nowrap">${esc(d)}</span>
                   ${isToday ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>' : ''}
                 </div>
               </td>
@@ -1696,13 +1715,13 @@ function renderWeeklyGrid(tt, days, todayName) {
                 <td class="p-1.5 sm:p-2.5 border-b border-white/5 align-middle">
                   <div class="rounded-xl p-2 sm:p-2.5 border transition-all ${isPractical ? 'bg-purple-500/5 border-purple-500/20 hover:border-purple-500/40' : 'bg-white/5 border-white/10 hover:border-blue-500/30'}">
                     <div class="font-bold text-white text-[10px] sm:text-[11px] leading-tight line-clamp-2">
-                      ${formatSubjectName(slot.subjectName)}
+                      ${esc(formatSubjectName(slot.subjectName))}
                       ${slot.isLab ? '<span class="text-purple-400 font-mono text-[9px] sm:text-[10px] font-bold ml-1">[LAB]</span>' : ''}
                     </div>
-                    <div class="text-[9px] sm:text-[10px] text-gray-400 mt-1 truncate">${resolveStaffName(slot.subjectName, slot.staff)}</div>
+                    <div class="text-[9px] sm:text-[10px] text-gray-400 mt-1 truncate">${esc(resolveStaffName(slot.subjectName, slot.staff))}</div>
                     <div class="mt-1">
                       <span class="text-[8px] sm:text-[9px] px-1.5 py-0.2 rounded font-semibold ${isPractical ? 'text-purple-300 bg-purple-500/20' : 'text-blue-300 bg-blue-500/20'}">
-                        ${slot.isLab ? 'LAB' : (slot.type || 'THEORY')}
+                        ${slot.isLab ? 'LAB' : esc(slot.type || 'THEORY')}
                       </span>
                     </div>
                   </div>

@@ -5,9 +5,181 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+// ── Security Hardening: Disable Server Fingerprint ───────────────────────────
+app.disable('x-powered-by');
+
+// ── Security Headers Middleware (CWE-693 / CWE-1021 / OWASP A05) ──────────────
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://va.vercel-scripts.com; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com data:; " +
+    "connect-src 'self' https://erp.sathyabama.ac.in https://*.vercel-insights.com; " +
+    "img-src 'self' data: https:; " +
+    "frame-ancestors 'self'; " +
+    "base-uri 'self'; " +
+    "form-action 'self';"
+  );
+  next();
+});
+
+// ── Hardened CORS Policy (CWE-942) ───────────────────────────────────────────
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (
+      process.env.NODE_ENV !== 'production' ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+      /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(origin) ||
+      /^https:\/\/.*\.vercel\.app$/.test(origin) ||
+      (process.env.ALLOWED_ORIGINS && process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).includes(origin))
+    ) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true
+}));
+
+// ── Request Body Size Limit to prevent DoS (CWE-400) ─────────────────────────
+app.use(express.json({ limit: '50kb' }));
+
+// ── Static File Whitelist & Source Code Access Guard (CWE-552) ────────────────
+const ALLOWED_STATIC_FILES = new Set([
+  'index.html',
+  'styles.css',
+  'app.js',
+  'portal-api.js',
+  'favicon.ico',
+  'favicon.png'
+]);
+
+// Block access to sensitive files, source code, and hidden dotfiles
+app.use((req, res, next) => {
+  const reqPath = decodeURIComponent(req.path).replace(/^\/+/, '').toLowerCase();
+
+  // Root path serves index.html
+  if (!reqPath || reqPath === 'index.html') {
+    return res.sendFile(path.join(__dirname, 'index.html'));
+  }
+
+  // Check if static file is in allowed whitelist
+  if (ALLOWED_STATIC_FILES.has(reqPath)) {
+    return res.sendFile(path.join(__dirname, reqPath));
+  }
+
+  // Block any attempts to fetch server files, package manifests, git or dotfiles
+  if (
+    reqPath.startsWith('.') ||
+    reqPath.startsWith('api/') ||
+    reqPath.startsWith('node_modules/') ||
+    reqPath === 'server.js' ||
+    reqPath.endsWith('.js') ||
+    reqPath.endsWith('.json') ||
+    reqPath.endsWith('.md')
+  ) {
+    // Only API endpoints should proceed
+    if (req.path.startsWith('/api/') || req.path === '/login' || req.path === '/health') {
+      return next();
+    }
+    return res.status(403).type('text/plain').send('Access Forbidden');
+  }
+
+  next();
+});
+
+// ── In-Memory Sliding-Window Rate Limiter (CWE-307 / CWE-770) ─────────────────
+function createRateLimiter({ windowMs, maxRequests, message }) {
+  const hits = new Map();
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, record] of hits.entries()) {
+      if (now > record.resetTime) {
+        hits.delete(key);
+      }
+    }
+  }, 5 * 60 * 1000).unref();
+
+  return (req, res, next) => {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown-ip';
+    const now = Date.now();
+    let record = hits.get(ip);
+
+    if (!record || now > record.resetTime) {
+      record = { count: 1, resetTime: now + windowMs };
+      hits.set(ip, record);
+      return next();
+    }
+
+    record.count++;
+    if (record.count > maxRequests) {
+      const retryAfterSec = Math.ceil((record.resetTime - now) / 1000);
+      res.setHeader('Retry-After', retryAfterSec);
+      return res.status(429).json({
+        success: false,
+        message: message || `Too many requests. Please try again in ${retryAfterSec} seconds.`
+      });
+    }
+
+    next();
+  };
+}
+
+const authRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 30,
+  message: 'Too many login attempts. Please wait a few minutes before trying again.'
+});
+
+const apiRateLimiter = createRateLimiter({
+  windowMs: 1 * 60 * 1000,
+  maxRequests: 60,
+  message: 'API rate limit exceeded. Please slow down.'
+});
+
+// ── Strict Input Validation Helpers (CWE-20 / CWE-113 / CWE-1287) ────────────
+function isValidRegNumber(reg) {
+  if (typeof reg !== 'string') return false;
+  const trimmed = reg.trim();
+  return /^[A-Za-z0-9._-]{3,30}$/.test(trimmed);
+}
+
+function isValidPassword(pass) {
+  if (typeof pass !== 'string') return false;
+  return pass.length >= 1 && pass.length <= 128;
+}
+
+function isValidToken(token) {
+  if (typeof token !== 'string') return false;
+  const trimmed = token.trim();
+  // Must be non-empty printable ASCII, strictly rejecting CRLF and control characters to prevent header injection
+  return trimmed.length >= 8 && trimmed.length <= 4096 && !/[\r\n\x00-\x1F\x7F]/.test(trimmed);
+}
+
+function isValidStudentId(sid) {
+  if (sid === null || sid === undefined) return false;
+  const num = Number(sid);
+  return Number.isInteger(num) && num > 0 && num < 100000000;
+}
+
+function sanitizeForLog(str) {
+  if (!str) return '—';
+  const s = String(str).trim();
+  if (s.length <= 4) return '***';
+  return s.slice(0, 3) + '****' + s.slice(-2);
+}
 
 const ERP_ORIGIN = 'https://erp.sathyabama.ac.in';
 
@@ -22,10 +194,15 @@ async function erpPostDirect(endpoint, token = null, body = {}) {
       'Referer': `${ERP_ORIGIN}/student/view`
     };
     if (token) {
+      if (!isValidToken(token)) {
+        console.warn('[ERP-API] Invalid token format rejected.');
+        return null;
+      }
       headers['Authorization'] = `Bearer ${token}`;
       headers['Access-Token'] = token;
       headers['Token'] = token;
     }
+
 
     const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/${endpoint}`, {
       method: 'POST',
@@ -1053,23 +1230,31 @@ function getVerifiedFallbackTimetable() {
 // ─── Core Login & Data Retrieval Handler (Orchestrator) ───────────────────────
 async function loginHandler(req, res) {
   const { regNumber, password } = req.body || {};
-  if (!regNumber || !password) {
-    return res.status(400).json({ success: false, message: 'Register Number and Password are required.' });
+
+  if (!isValidRegNumber(regNumber) || !isValidPassword(password)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid input. Please provide a valid alphanumeric Register Number and Password.'
+    });
   }
 
+  const cleanReg = regNumber.trim();
+  const cleanPass = password;
+  const maskedReg = sanitizeForLog(cleanReg);
+
   const startTime = Date.now();
-  console.log(`[REST-Auth] Authenticating student ${regNumber}...`);
+  console.log(`[REST-Auth] Authenticating student ${maskedReg}...`);
 
   try {
     // 1. Authenticate with ERP API
     const loginData = await erpPostDirect('MasterStudent/login', null, {
-      RegisterNumber: regNumber,
-      Password: password
+      RegisterNumber: cleanReg,
+      Password: cleanPass
     });
 
     if (!loginData || loginData.status !== true) {
       const errorMsg = loginData?.message || 'Invalid Register Number or Password.';
-      console.log(`[REST-Auth] Authentication failed for ${regNumber}: ${errorMsg}`);
+      console.log(`[REST-Auth] Authentication failed for ${maskedReg}`);
       return res.status(401).json({ success: false, message: errorMsg });
     }
 
@@ -1077,29 +1262,29 @@ async function loginHandler(req, res) {
     const token = loginObj.accessToken || loginData?.responseData?.accessToken || '';
     const studentId = loginObj.StudentId || loginData?.responseData?.StudentId || 0;
 
-    if (!token) {
+    if (!token || !isValidToken(token)) {
       return res.status(401).json({
         success: false,
-        message: 'Login succeeded on ERP, but no access token was returned.'
+        message: 'Login succeeded on ERP, but no valid access token was returned.'
       });
     }
 
-    console.log(`[REST-Auth] Token acquired for ${regNumber} (StudentId: ${studentId}). Running modular scrapers...`);
+    console.log(`[REST-Auth] Token acquired for ${maskedReg}. Running modular scrapers...`);
 
     // 2. Run Profile and Attendance scrapers in parallel
     const [profile, attendance] = await Promise.all([
-      scrapeProfile(token, studentId, regNumber, loginData),
+      scrapeProfile(token, studentId, cleanReg, loginData),
       scrapeAttendance(token, studentId)
     ]);
 
     // 3. Run CAE marks and Timetable scrapers concurrently
     const [cae, timetable] = await Promise.all([
-      scrapeCAEResults(token, regNumber, profile),
+      scrapeCAEResults(token, cleanReg, profile),
       scrapeTimetable(token, studentId, profile?._raw || profile)
     ]);
 
     const elapsed = Date.now() - startTime;
-    console.log(`[REST-Auth] ✅ All data scraped for ${regNumber} in ${elapsed}ms. Attendance: ${attendance.totalDays} days (${attendance.overallPercentage}%). Timetable loaded.`);
+    console.log(`[REST-Auth] ✅ All data scraped for ${maskedReg} in ${elapsed}ms.`);
 
     return res.json({
       success: true,
@@ -1120,42 +1305,63 @@ async function loginHandler(req, res) {
     });
 
   } catch (err) {
-    console.error('[REST-Auth Error]', err.stack || err.message);
-    return res.status(500).json({ success: false, message: `Server error: ${err.message}` });
+    console.error('[REST-Auth Error]', err.name || 'Error processing request');
+    return res.status(500).json({ success: false, message: 'Internal server error. Please try again later.' });
   }
 }
 
-// ─── API Routes ───────────────────────────────────────────────────────────────
-app.post('/api/login', loginHandler);
-app.post('/login', loginHandler);
+// ─── API Routes (Protected with Rate Limiting & Validation) ───────────────────
+app.post('/api/login', authRateLimiter, loginHandler);
+app.post('/login', authRateLimiter, loginHandler);
 
 // Individual scrapers accessible directly if needed
-app.post('/api/profile', async (req, res) => {
-  const { token, studentId, regNumber } = req.body || {};
-  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
-  const profile = await scrapeProfile(token, studentId, regNumber);
-  res.json({ success: true, profile });
+app.post('/api/profile', apiRateLimiter, async (req, res) => {
+  try {
+    const { token, studentId, regNumber } = req.body || {};
+    if (!token || !isValidToken(token)) return res.status(401).json({ success: false, message: 'Valid token required.' });
+    if (studentId && !isValidStudentId(studentId)) return res.status(400).json({ success: false, message: 'Invalid studentId format.' });
+    if (regNumber && !isValidRegNumber(regNumber)) return res.status(400).json({ success: false, message: 'Invalid regNumber format.' });
+    const profile = await scrapeProfile(token, studentId, regNumber);
+    res.json({ success: true, profile });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error processing profile request.' });
+  }
 });
 
-app.post('/api/attendance', async (req, res) => {
-  const { token, studentId } = req.body || {};
-  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
-  const attendance = await scrapeAttendance(token, studentId);
-  res.json({ success: true, attendance });
+app.post('/api/attendance', apiRateLimiter, async (req, res) => {
+  try {
+    const { token, studentId } = req.body || {};
+    if (!token || !isValidToken(token)) return res.status(401).json({ success: false, message: 'Valid token required.' });
+    if (studentId && !isValidStudentId(studentId)) return res.status(400).json({ success: false, message: 'Invalid studentId format.' });
+    const attendance = await scrapeAttendance(token, studentId);
+    res.json({ success: true, attendance });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error processing attendance request.' });
+  }
 });
 
-app.post('/api/cae', async (req, res) => {
-  const { token, regNumber, profile } = req.body || {};
-  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
-  const cae = await scrapeCAEResults(token, regNumber, profile);
-  res.json({ success: true, cae });
+app.post('/api/cae', apiRateLimiter, async (req, res) => {
+  try {
+    const { token, regNumber, profile } = req.body || {};
+    if (!token || !isValidToken(token)) return res.status(401).json({ success: false, message: 'Valid token required.' });
+    if (regNumber && !isValidRegNumber(regNumber)) return res.status(400).json({ success: false, message: 'Invalid regNumber format.' });
+    const cae = await scrapeCAEResults(token, regNumber, profile);
+    res.json({ success: true, cae });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error processing CAE request.' });
+  }
 });
 
-app.post('/api/timetable', async (req, res) => {
-  const { token, studentId, profile } = req.body || {};
-  if (!token) return res.status(401).json({ success: false, message: 'Token required' });
-  const timetable = await scrapeTimetable(token, studentId, profile);
-  res.json({ success: true, timetable });
+app.post('/api/timetable', apiRateLimiter, async (req, res) => {
+  try {
+    const { token, studentId, profile } = req.body || {};
+    if (!token || !isValidToken(token)) return res.status(401).json({ success: false, message: 'Valid token required.' });
+    if (studentId && !isValidStudentId(studentId)) return res.status(400).json({ success: false, message: 'Invalid studentId format.' });
+    const timetable = await scrapeTimetable(token, studentId, profile);
+    res.json({ success: true, timetable });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error processing timetable request.' });
+  }
 });
 
 app.get('/_vercel/insights/script.js', (req, res) => res.type('application/javascript').send('// Vercel Insights local stub'));
