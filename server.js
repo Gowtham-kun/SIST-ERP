@@ -730,12 +730,22 @@ async function scrapeTimetable(token, studentId, studentInfo) {
 
   const isJunior = (semNum === 1 || semNum === 2 || yrNum === 1);
 
-  // Dynamic batch deduction if missing (calculated dynamically from current year and student year of study)
+  // Dynamic batch deduction if missing (calculated dynamically from current year and programme duration)
   const now = new Date();
   const curYear = now.getFullYear();
   if (!batch || typeof batch !== 'string' || !batch.includes('-')) {
+    const progText = `${studentInfo?.programme || ''} ${studentInfo?.department || ''} ${studentInfo?.branch || ''} ${studentInfo?.degree || ''}`.toLowerCase();
+    let progDuration = 4; // Default B.E. / B.Tech
+    if (/\b(m\.?tech|mba|mca|m\.?sc|m\.?e|postgraduate|pg)\b/i.test(progText)) {
+      progDuration = 2;
+    } else if (/\b(b\.?com|bba|b\.?sc|bca|arts|science|humanities)\b/i.test(progText)) {
+      progDuration = 3;
+    } else if (/\b(b\.?arch|law|ll\.?b|b\.?des|integrated)\b/i.test(progText)) {
+      progDuration = 5;
+    }
+
     const startYr = curYear - (yrNum - 1);
-    batch = `${startYr}-${startYr + 4}`;
+    batch = `${startYr}-${startYr + progDuration}`;
   }
 
   const baseParams = {
@@ -900,7 +910,7 @@ async function scrapeTimetable(token, studentId, studentInfo) {
 
   // Fallback to verified official portal timetable matching batch/year
   console.log(`[TimetableScraper] Using official portal verified schedule mapping for ${isJunior ? 'Junior' : 'Senior'}`);
-  return getVerifiedFallbackTimetable(isJunior);
+  return getVerifiedFallbackTimetable(isJunior, studentInfo);
 }
 
 function parseTimeMinutes(tStr) {
@@ -1411,7 +1421,28 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
   };
 }
 
-function getVerifiedFallbackTimetable(isJunior = false) {
+function isCseOrItStudent(studentInfo) {
+  if (!studentInfo) return true;
+  const progText = `${studentInfo?.department || ''} ${studentInfo?.programme || ''} ${studentInfo?.branch || ''}`.toLowerCase();
+  if (!progText.trim()) return true;
+  return /\b(computer|cse|information technology|\bit\b|software|artificial intelligence|data science|cyber|aiml)\b/i.test(progText);
+}
+
+function getVerifiedFallbackTimetable(isJunior = false, studentInfo = null) {
+  // If student belongs to a non-CSE/IT department, do not impose CSE timetable
+  if (studentInfo && !isCseOrItStudent(studentInfo)) {
+    const dept = studentInfo.department || studentInfo.programme || 'your department';
+    const sec = studentInfo.section || '—';
+    return {
+      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      headers: [],
+      schedule: { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] },
+      subjects: [],
+      isPublished: false,
+      message: `Official ERP timetable schedule has not been published for ${dept} (Section ${sec}) yet.`
+    };
+  }
+
   if (isJunior) {
     const staffDirectory = [
       { subjectCode: 'SMTA1101', subjectName: 'Engineering Mathematics I', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },

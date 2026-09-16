@@ -703,10 +703,10 @@ function renderAttendance() {
   const yrNum = parseInt(String(yrRaw).replace(/\D/g, ''), 10) || 0;
   const isJunior = (semNum === 1 || semNum === 2 || yrNum === 1);
 
-  const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
+  const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule && Object.keys(appState.data.timetable.schedule).length > 0)
     ? appState.data.timetable
-    : getClientFallbackTimetable(isJunior);
-  const enrichedTt = getEnrichedTimetable(rawTt, isJunior);
+    : getClientFallbackTimetable(isJunior, appState.data?.studentDetails);
+  const enrichedTt = getEnrichedTimetable(rawTt, isJunior, appState.data?.studentDetails);
   
   const dailyLogs = a.dailyLogs || [];
   
@@ -872,8 +872,8 @@ function normalizeSubName(name) {
   return String(name).replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim().toLowerCase();
 }
 
-function getEnrichedTimetable(rawTt, isJunior = false) {
-  const tt = rawTt || getClientFallbackTimetable(isJunior);
+function getEnrichedTimetable(rawTt, isJunior = false, studentDetails = null) {
+  const tt = rawTt || getClientFallbackTimetable(isJunior, studentDetails);
   const schedule = {};
   const days = tt.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -1030,7 +1030,7 @@ function getEnrichedTimetable(rawTt, isJunior = false) {
 function calculateSubjectAttendance(parsedLogs, enrichedTt) {
   const tracker = {};
 
-  // Pre-seed tracker from timetable so all scheduled courses exist
+  // Pre-seed tracker from timetable schedule slots
   for (const day of (enrichedTt.days || [])) {
     const slots = (enrichedTt.schedule?.[day] || []).filter(s => !s.isBreak && !s.isLunch);
     for (const slot of slots) {
@@ -1046,6 +1046,31 @@ function calculateSubjectAttendance(parsedLogs, enrichedTt) {
           isLab,
           type: isLab ? 'LAB' : 'THEORY',
           staff: resolveStaffName(slot.subjectName, slot.staff),
+          conducted: 0,
+          attended: 0,
+          missed: 0
+        };
+      }
+    }
+  }
+
+  // Also pre-seed from enrichedTt.subjects if available (ensures all enrolled courses appear even if schedule matrix is pending)
+  if (Array.isArray(enrichedTt.subjects)) {
+    for (const sub of enrichedTt.subjects) {
+      const subName = sub.subjectName || sub.name;
+      const norm = normalizeSubName(subName);
+      if (!norm) continue;
+      const isLab = Boolean(sub.isLab || /practical|lab/i.test(sub.subjectType || sub.type || ''));
+      const key = (isLab ? 'LAB::' : 'THEORY::') + norm;
+      if (!tracker[key]) {
+        tracker[key] = {
+          key,
+          subjectName: subName,
+          rawName: formatSubjectName(subName),
+          displayName: formatSubjectName(subName) + (isLab ? ' [LAB]' : ''),
+          isLab,
+          type: isLab ? 'LAB' : 'THEORY',
+          staff: resolveStaffName(subName, sub.staff),
           conducted: 0,
           attended: 0,
           missed: 0
@@ -1265,7 +1290,7 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
       </div>
     </div>
 
-    <!-- ── SECTION 1: THEORY COURSES ATTENDANCE ─────────────────────────────── -->
+    <!-- ── SECTION 1: THEORY / GENERAL COURSES ATTENDANCE ───────────────────── -->
     <div class="space-y-4">
       <div class="flex items-center justify-between gap-4 border-b border-white/10 pb-3 flex-wrap">
         <div class="flex items-center gap-2.5">
@@ -1273,8 +1298,8 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
             <span class="material-symbols-outlined text-base">menu_book</span>
           </div>
           <div>
-            <h3 class="text-base sm:text-lg font-bold text-white tracking-wide">Theory Courses Attendance</h3>
-            <p class="text-[11px] text-gray-400">Regular lecture hours calculated from your class timetable</p>
+            <h3 class="text-base sm:text-lg font-bold text-white tracking-wide">${labSubjects.length > 0 ? 'Theory Courses Attendance' : 'Subject Attendance'}</h3>
+            <p class="text-[11px] text-gray-400">${labSubjects.length > 0 ? 'Regular lecture hours calculated from your class timetable' : 'Subject attendance calculated from your timetable schedule'}</p>
           </div>
         </div>
         <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300 font-semibold">
@@ -1287,7 +1312,8 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
       </div>
     </div>
 
-    <!-- ── SECTION 2: LABORATORY COURSES ATTENDANCE ────────────────────────── -->
+    <!-- ── SECTION 2: LABORATORY COURSES ATTENDANCE (Hidden for departments without lab classes) ── -->
+    ${labSubjects.length > 0 ? `
     <div class="space-y-4 pt-2">
       <div class="flex items-center justify-between gap-4 border-b border-purple-500/20 pb-3 flex-wrap">
         <div class="flex items-center gap-2.5">
@@ -1310,7 +1336,7 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
         ${labSubjects.map(s => renderSubjectCard(s, true)).join('')}
       </div>
-    </div>
+    </div>` : ''}
 
   </div>`;
 }
@@ -1557,7 +1583,28 @@ function resolveStaffName(subjectName, staff) {
   return verified[key] || staff || 'Faculty';
 }
 
-function getClientFallbackTimetable(isJunior = false) {
+function isCseOrItDepartment(studentDetails) {
+  if (!studentDetails) return true;
+  const progText = `${studentDetails.department || ''} ${studentDetails.programme || ''} ${studentDetails.branch || ''}`.toLowerCase();
+  if (!progText.trim()) return true;
+  return /\b(computer|cse|information technology|\bit\b|software|artificial intelligence|data science|cyber|aiml)\b/i.test(progText);
+}
+
+function getClientFallbackTimetable(isJunior = false, studentDetails = null) {
+  // If student belongs to a non-CSE/IT department, do not impose CSE timetable
+  if (studentDetails && !isCseOrItDepartment(studentDetails)) {
+    const dept = studentDetails.department || studentDetails.programme || 'your department';
+    const sec = studentDetails.section || '—';
+    return {
+      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      headers: [],
+      schedule: { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] },
+      subjects: [],
+      isPublished: false,
+      message: `Official ERP timetable schedule has not been published for ${dept} (Section ${sec}) yet.`
+    };
+  }
+
   if (isJunior) {
     const juniorStaffDirectory = [
       { subjectCode: 'SMTA1101', subjectName: 'Engineering Mathematics - I (Calculus & Linear Algebra)', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. S. KAVITHA' },
@@ -1942,10 +1989,10 @@ function renderTimetable() {
   const yrNum = parseInt(String(yrRaw).replace(/\D/g, ''), 10) || 0;
   const isJunior = (semNum === 1 || semNum === 2 || yrNum === 1);
 
-  const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
+  const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule && Object.keys(appState.data.timetable.schedule).length > 0)
     ? appState.data.timetable
-    : getClientFallbackTimetable(isJunior);
-  const tt = getEnrichedTimetable(rawTt, isJunior);
+    : getClientFallbackTimetable(isJunior, appState.data?.studentDetails);
+  const tt = getEnrichedTimetable(rawTt, isJunior, appState.data?.studentDetails);
 
   const sectionName = appState.data?.studentDetails?.section || '—';
   const subjects = tt.subjects || [];
@@ -2052,9 +2099,14 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
     <!-- Timeline Slots -->
     <div class="space-y-3">
       ${daySchedule.length === 0 ? `
-        <div class="glass-card rounded-2xl p-12 text-center text-gray-400">
-          <span class="material-symbols-outlined text-4xl mb-2 text-gray-500">event_busy</span>
-          <p class="text-sm font-medium">No schedule mapped for ${esc(activeDay)}.</p>
+        <div class="glass-card rounded-2xl p-8 sm:p-12 text-center space-y-3 border border-white/10">
+          <div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">
+            <span class="material-symbols-outlined text-2xl">event_busy</span>
+          </div>
+          <h4 class="text-base sm:text-lg font-bold text-white tracking-tight">No Schedule Available</h4>
+          <p class="text-xs sm:text-sm text-gray-400 max-w-md mx-auto">
+            ${esc(tt.message || `No classes scheduled for ${activeDay}.`)}
+          </p>
         </div>` :
         daySchedule.map(slot => {
           if (slot.isBreak || slot.isLunch) {
@@ -2125,6 +2177,19 @@ function renderWeeklyGrid(tt, days, todayName, isJunior = false) {
 
   const dayIndexMap = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
   const monthAbbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  if (tt.isPublished === false || !tt.schedule || Object.keys(tt.schedule).length === 0 || Object.values(tt.schedule).every(slots => !slots || slots.length === 0)) {
+    return `
+    <div class="glass-card rounded-2xl p-8 sm:p-12 text-center space-y-3 border border-white/10">
+      <div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">
+        <span class="material-symbols-outlined text-2xl">event_busy</span>
+      </div>
+      <h4 class="text-base sm:text-lg font-bold text-white tracking-tight">Weekly Grid Not Published Yet</h4>
+      <p class="text-xs sm:text-sm text-gray-400 max-w-md mx-auto">
+        ${esc(tt.message || 'The official ERP has not published the class schedule for your department and section yet.')}
+      </p>
+    </div>`;
+  }
 
   const headers = (Array.isArray(tt.headers) && tt.headers.length > 0)
     ? tt.headers.filter(h => !h.hour || h.hour <= 10)
