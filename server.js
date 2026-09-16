@@ -5,8 +5,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ── Security Hardening: Disable Server Fingerprint ───────────────────────────
+// ── Security Hardening: Disable Server Fingerprint & Trust Reverse Proxy ─────
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 // ── Security Headers Middleware (CWE-693 / CWE-1021 / OWASP A05) ──────────────
 app.use((req, res, next) => {
@@ -113,7 +114,8 @@ function createRateLimiter({ windowMs, maxRequests, message }) {
   }, 5 * 60 * 1000).unref();
 
   return (req, res, next) => {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown-ip';
+    const forwarded = req.headers['x-forwarded-for'];
+    const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) || req.ip || req.socket.remoteAddress || 'unknown-ip';
     const now = Date.now();
     let record = hits.get(ip);
 
@@ -137,10 +139,12 @@ function createRateLimiter({ windowMs, maxRequests, message }) {
   };
 }
 
+// Broad IP-level flood protection (300 requests / 15m) to protect server resources
+// without bottlenecking shared campus/hostel Wi-Fi networks.
 const authRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  maxRequests: 30,
-  message: 'Too many login attempts. Please wait a few minutes before trying again.'
+  maxRequests: 300,
+  message: 'Too many requests from this network. Please wait a few minutes before trying again.'
 });
 
 const apiRateLimiter = createRateLimiter({
@@ -148,6 +152,71 @@ const apiRateLimiter = createRateLimiter({
   maxRequests: 60,
   message: 'API rate limit exceeded. Please slow down.'
 });
+
+// ── Account-Based Login Rate Limiter (CWE-307) ───────────────────────────────
+// Limits consecutive failed login attempts per student Register Number (max 10 tries)
+// to prevent brute-force attacks without locking out entire campus networks.
+const MAX_ACCOUNT_LOGIN_TRIES = 10;
+const ACCOUNT_LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_ACCOUNT_RECORDS = 10000; // Memory guard against Map flooding
+
+const accountLoginAttempts = new Map();
+
+// Periodic cleanup of expired lockout records
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of accountLoginAttempts.entries()) {
+    if (now > record.resetTime) {
+      accountLoginAttempts.delete(key);
+    }
+  }
+}, 5 * 60 * 1000).unref();
+
+function getAccountLockoutStatus(regNumber) {
+  if (!regNumber || typeof regNumber !== 'string') return { locked: false, retryAfterSec: 0 };
+  const key = regNumber.trim().toUpperCase();
+  const now = Date.now();
+  const record = accountLoginAttempts.get(key);
+
+  if (!record) return { locked: false, retryAfterSec: 0 };
+
+  if (now > record.resetTime) {
+    accountLoginAttempts.delete(key);
+    return { locked: false, retryAfterSec: 0 };
+  }
+
+  if (record.count >= MAX_ACCOUNT_LOGIN_TRIES) {
+    const retryAfterSec = Math.ceil((record.resetTime - now) / 1000);
+    return { locked: true, retryAfterSec };
+  }
+
+  return { locked: false, retryAfterSec: 0 };
+}
+
+function recordAccountLoginFailure(regNumber) {
+  if (!regNumber || typeof regNumber !== 'string') return;
+  const key = regNumber.trim().toUpperCase();
+  const now = Date.now();
+
+  // Safety cap against memory exhaustion
+  if (accountLoginAttempts.size >= MAX_ACCOUNT_RECORDS) {
+    const oldestKey = accountLoginAttempts.keys().next().value;
+    if (oldestKey) accountLoginAttempts.delete(oldestKey);
+  }
+
+  const record = accountLoginAttempts.get(key);
+  if (!record || now > record.resetTime) {
+    accountLoginAttempts.set(key, { count: 1, resetTime: now + ACCOUNT_LOCKOUT_WINDOW_MS });
+  } else {
+    record.count++;
+  }
+}
+
+function clearAccountLoginAttempts(regNumber) {
+  if (!regNumber || typeof regNumber !== 'string') return;
+  const key = regNumber.trim().toUpperCase();
+  accountLoginAttempts.delete(key);
+}
 
 // ── Strict Input Validation Helpers (CWE-20 / CWE-113 / CWE-1287) ────────────
 function isValidRegNumber(reg) {
@@ -1546,6 +1615,17 @@ async function loginHandler(req, res) {
   const cleanPass = password;
   const maskedReg = sanitizeForLog(cleanReg);
 
+  // Check account-specific lockout (max 10 failed attempts per register number)
+  const lockout = getAccountLockoutStatus(cleanReg);
+  if (lockout.locked) {
+    res.setHeader('Retry-After', lockout.retryAfterSec);
+    const mins = Math.ceil(lockout.retryAfterSec / 60);
+    return res.status(429).json({
+      success: false,
+      message: `Too many login attempts. Please wait ${mins} minute${mins > 1 ? 's' : ''} before trying again.`
+    });
+  }
+
   const startTime = Date.now();
   console.log(`[REST-Auth] Authenticating student ${maskedReg}...`);
 
@@ -1557,10 +1637,14 @@ async function loginHandler(req, res) {
     });
 
     if (!loginData || loginData.status !== true) {
+      recordAccountLoginFailure(cleanReg);
       const errorMsg = loginData?.message || 'Invalid Register Number or Password.';
       console.log(`[REST-Auth] Authentication failed for ${maskedReg}`);
       return res.status(401).json({ success: false, message: errorMsg });
     }
+
+    // Success! Clear any past failed attempts for this student
+    clearAccountLoginAttempts(cleanReg);
 
     const loginObj = loginData?.responseData?.login || {};
     const token = loginObj.accessToken || loginData?.responseData?.accessToken || '';
