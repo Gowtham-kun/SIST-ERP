@@ -327,7 +327,32 @@ function val(v) {
   return escapeHtml(str);
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Auth & Mobile Input Helpers ───────────────────────────────────────────────
+function togglePasswordVisibility() {
+  const passInput = document.getElementById('password');
+  const icon = document.getElementById('togglePasswordIcon');
+  if (!passInput) return;
+  const isPassword = passInput.type === 'password';
+  passInput.type = isPassword ? 'text' : 'password';
+  if (icon) {
+    icon.textContent = isPassword ? 'visibility_off' : 'visibility';
+  }
+}
+
+// Smart keyboard navigation: pressing Enter on register number advances to password
+document.addEventListener('DOMContentLoaded', () => {
+  const regInput = document.getElementById('regNumber');
+  const passInput = document.getElementById('password');
+  if (regInput && passInput) {
+    regInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        passInput.focus();
+      }
+    });
+  }
+});
+
 async function handleLoginSubmit(e) {
   e.preventDefault();
   const reg  = document.getElementById('regNumber').value.trim();
@@ -1705,6 +1730,205 @@ function getClientFallbackTimetable(isJunior = false) {
   };
 }
 
+function parseTimeToMinutes(str) {
+  if (!str) return null;
+  const clean = String(str).trim().toLowerCase();
+  const m = clean.match(/(\d{1,2}):(\d{2})(?:\s*(am|pm))?/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ampm = m[3];
+
+  if (ampm) {
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+  } else {
+    // College schedule heuristic: 1-6 is afternoon (13:00-18:00), 7-12 is morning/noon
+    if (h >= 1 && h <= 6) h += 12;
+  }
+  return h * 60 + min;
+}
+
+function parseSlotRange(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const parts = timeStr.split('-');
+  if (parts.length < 2) return null;
+  const start = parseTimeToMinutes(parts[0]);
+  const end = parseTimeToMinutes(parts[1]);
+  if (start === null || end === null) return null;
+  return { start, end };
+}
+
+function renderLiveClassHero(tt, todayName) {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const isWeekday = days.includes(todayName);
+
+  if (!isWeekday) {
+    return `
+    <div class="glass-card rounded-2xl p-4 sm:p-5 border border-purple-500/20 bg-gradient-to-r from-purple-500/10 via-blue-500/5 to-transparent flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3.5 min-w-0">
+        <div class="w-11 h-11 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-300 flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-2xl">weekend</span>
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">Weekend</span>
+            <span class="text-xs text-gray-400 font-mono">${todayName}</span>
+          </div>
+          <h4 class="text-sm sm:text-base font-bold text-white mt-0.5">No classes scheduled today!</h4>
+          <p class="text-xs text-gray-400 mt-0.5">Classes resume on Monday morning at 8:30 AM.</p>
+        </div>
+      </div>
+      <button onclick="setTimetableDay('Monday')" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-gray-300 border border-white/10 flex-shrink-0 hidden sm:flex items-center gap-1.5">
+        <span>Monday Schedule</span>
+        <span class="material-symbols-outlined text-sm">arrow_forward</span>
+      </button>
+    </div>`;
+  }
+
+  const daySchedule = tt.schedule?.[todayName] || [];
+  if (daySchedule.length === 0) return '';
+
+  const parsedSlots = daySchedule.map(s => {
+    const range = parseSlotRange(s.time);
+    return { ...s, range };
+  }).filter(s => s.range !== null);
+
+  if (parsedSlots.length === 0) return '';
+
+  parsedSlots.sort((a, b) => a.range.start - b.range.start);
+  const firstSlot = parsedSlots[0];
+  const lastSlot = parsedSlots[parsedSlots.length - 1];
+
+  // 1. Currently active class or break
+  const activeSlot = parsedSlots.find(s => currentMinutes >= s.range.start && currentMinutes < s.range.end);
+
+  if (activeSlot) {
+    const isBreak = activeSlot.isBreak || activeSlot.isLunch;
+    const minsLeft = Math.max(1, activeSlot.range.end - currentMinutes);
+    const title = isBreak
+      ? (activeSlot.isLunch ? 'Lunch Break' : 'Morning Break')
+      : formatSubjectName(activeSlot.subjectName);
+    const faculty = isBreak ? '' : resolveStaffName(activeSlot.subjectName, activeSlot.staff);
+    const nextSlot = parsedSlots.find(s => s.range.start >= activeSlot.range.end);
+
+    return `
+    <div class="glass-card rounded-2xl p-4 sm:p-5 border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/[0.03] to-transparent shadow-lg shadow-emerald-950/20 space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <span class="text-[10px] sm:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Happening Now</span>
+          <span class="text-xs text-gray-400 font-mono hidden xs:inline">• Period ${activeSlot.hour || 'Break'}</span>
+        </div>
+        <span class="text-xs font-bold text-emerald-300 font-mono flex items-center gap-1">
+          <span class="material-symbols-outlined text-sm">timer</span>
+          ${minsLeft} min${minsLeft !== 1 ? 's' : ''} left
+        </span>
+      </div>
+
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0 flex-1">
+          <h4 class="text-base sm:text-lg font-bold text-white tracking-wide leading-snug break-words">
+            ${esc(title)}
+            ${activeSlot.isLab ? '<span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">[LAB]</span>' : ''}
+          </h4>
+          <div class="flex items-center gap-3 mt-1 text-xs text-gray-300 flex-wrap">
+            ${faculty ? `
+            <span class="flex items-center gap-1">
+              <span class="material-symbols-outlined text-sm text-gray-400">person</span>
+              <span>${esc(faculty)}</span>
+            </span>` : ''}
+            <span class="flex items-center gap-1 font-mono text-gray-400">
+              <span class="material-symbols-outlined text-sm text-gray-500">schedule</span>
+              <span>${esc(activeSlot.time)}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      ${nextSlot ? `
+      <div class="pt-2 border-t border-white/5 flex items-center justify-between text-xs text-gray-400">
+        <span class="truncate">Next: <strong class="text-gray-200">${esc(formatSubjectName(nextSlot.subjectName))}</strong></span>
+        <span class="font-mono text-[11px] text-gray-500 flex-shrink-0">${esc(nextSlot.time)}</span>
+      </div>` : ''}
+    </div>`;
+  }
+
+  // 2. Upcoming class today
+  const nextSlot = parsedSlots.find(s => s.range.start > currentMinutes);
+  if (nextSlot) {
+    const minsUntil = nextSlot.range.start - currentMinutes;
+    const isBreak = nextSlot.isBreak || nextSlot.isLunch;
+    const title = isBreak
+      ? (nextSlot.isLunch ? 'Lunch Break' : 'Morning Break')
+      : formatSubjectName(nextSlot.subjectName);
+    const faculty = isBreak ? '' : resolveStaffName(nextSlot.subjectName, nextSlot.staff);
+
+    const timeDisplay = minsUntil < 60
+      ? `Starts in ${minsUntil} min${minsUntil !== 1 ? 's' : ''}`
+      : `Starts at ${formatTo12Hour(nextSlot.time.split('-')[0].trim())}`;
+
+    return `
+    <div class="glass-card rounded-2xl p-4 sm:p-5 border border-blue-500/30 bg-gradient-to-r from-blue-500/10 via-blue-500/[0.03] to-transparent shadow-lg shadow-blue-950/20 space-y-2.5">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+          <span class="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">Next Up</span>
+          <span class="text-xs text-gray-400 font-mono hidden xs:inline">• Period ${nextSlot.hour || 'Break'}</span>
+        </div>
+        <span class="text-xs font-semibold text-blue-300 font-mono flex items-center gap-1">
+          <span class="material-symbols-outlined text-sm">schedule</span>
+          ${timeDisplay}
+        </span>
+      </div>
+
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0 flex-1">
+          <h4 class="text-base sm:text-lg font-bold text-white tracking-wide leading-snug break-words">
+            ${esc(title)}
+            ${nextSlot.isLab ? '<span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">[LAB]</span>' : ''}
+          </h4>
+          <div class="flex items-center gap-3 mt-1 text-xs text-gray-300 flex-wrap">
+            ${faculty ? `
+            <span class="flex items-center gap-1">
+              <span class="material-symbols-outlined text-sm text-gray-400">person</span>
+              <span>${esc(faculty)}</span>
+            </span>` : ''}
+            <span class="flex items-center gap-1 font-mono text-gray-400">
+              <span class="material-symbols-outlined text-sm text-gray-500">schedule</span>
+              <span>${esc(nextSlot.time)}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // 3. Classes finished for today
+  if (currentMinutes >= lastSlot.range.end) {
+    return `
+    <div class="glass-card rounded-2xl p-4 sm:p-5 border border-white/10 bg-white/[0.02] flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3.5 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-xl">done_all</span>
+        </div>
+        <div class="min-w-0">
+          <span class="text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Day Complete</span>
+          <h4 class="text-sm sm:text-base font-bold text-white mt-1">All classes wrapped up for ${todayName}! 🎉</h4>
+          <p class="text-xs text-gray-400 mt-0.5">Check tomorrow's schedule or review your attendance tracker.</p>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  return '';
+}
+
 function renderTimetable() {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1728,6 +1952,9 @@ function renderTimetable() {
 
   return `
   <div class="tab-content space-y-6">
+    <!-- Live Current / Next Class Widget -->
+    ${renderLiveClassHero(tt, todayName)}
+
     <!-- Header & View Switcher Bar -->
     <div class="glass-card rounded-2xl p-4 sm:p-5 border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
       <div>
@@ -2005,3 +2232,15 @@ function renderWeeklyGrid(tt, days, todayName, isJunior = false) {
   </div>`;
 }
 
+// ── Progressive Web App (PWA) Service Worker Registration ────────────────────
+if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((reg) => {
+        console.log('[PWA] Service Worker registered with scope:', reg.scope);
+      })
+      .catch((err) => {
+        console.warn('[PWA] Service Worker registration failed:', err);
+      });
+  });
+}

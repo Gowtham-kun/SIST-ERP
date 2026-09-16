@@ -1,0 +1,26 @@
+{
+  "name": "Sathyabama Student Portal",
+  "short_name": "SIST Portal",
+  "description": "Blazing fast student portal and ERP dashboard for Sathyabama Institute of Science and Technology",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#0f131c",
+  "theme_color": "#0f131c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "utilities"]
+}

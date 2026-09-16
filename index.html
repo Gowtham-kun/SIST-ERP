@@ -2,11 +2,19 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover"/>
   <title>SATHYABAMA ERP</title>
   <link rel="icon" type="image/png" href="favicon.png"/>
   <link rel="shortcut icon" href="favicon.ico"/>
   <link rel="apple-touch-icon" href="favicon.png"/>
+  <link rel="manifest" href="/manifest.json"/>
+
+  <!-- Mobile PWA & Status Bar Styling -->
+  <meta name="theme-color" content="#0f131c"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="SIST Portal"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
 
   <meta http-equiv="X-Content-Type-Options" content="nosniff"/>
   <meta name="referrer" content="strict-origin-when-cross-origin"/>
@@ -74,7 +82,8 @@
               <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">person</span>
               <input type="text" id="regNumber" name="regNumber" placeholder="Register Number" required
                      autocomplete="username" maxlength="30" spellcheck="false"
-                     class="w-full bg-transparent pl-10 pr-4 py-2.5 sm:py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
+                     autocapitalize="characters" autocorrect="off" enterkeyhint="next"
+                     class="w-full bg-transparent pl-10 pr-4 py-2.5 sm:py-3 text-base sm:text-sm text-white placeholder-gray-500 focus:outline-none" />
             </div>
           </div>
 
@@ -83,8 +92,14 @@
             <div class="relative flex items-center glass-input rounded-xl overflow-hidden">
               <span class="material-symbols-outlined text-gray-400 absolute left-3 text-lg pointer-events-none">lock</span>
               <input type="password" id="password" name="password" placeholder="••••••••" required
-                     autocomplete="current-password" maxlength="128"
-                     class="w-full bg-transparent pl-10 pr-4 py-2.5 sm:py-3 text-sm text-white placeholder-gray-500 focus:outline-none" />
+                     autocomplete="current-password" maxlength="128" enterkeyhint="go"
+                     autocapitalize="none" autocorrect="off"
+                     class="w-full bg-transparent pl-10 pr-11 py-2.5 sm:py-3 text-base sm:text-sm text-white placeholder-gray-500 focus:outline-none" />
+              <button type="button" id="togglePasswordBtn" onclick="togglePasswordVisibility()" tabindex="-1"
+                      class="absolute right-2.5 text-gray-400 hover:text-white p-1 rounded-lg transition-colors flex items-center justify-center"
+                      title="Toggle password visibility" aria-label="Toggle password visibility">
+                <span class="material-symbols-outlined text-lg" id="togglePasswordIcon">visibility</span>
+              </button>
             </div>
           </div>
 

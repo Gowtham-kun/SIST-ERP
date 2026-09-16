@@ -63,7 +63,9 @@ const ALLOWED_STATIC_FILES = new Set([
   'app.js',
   'portal-api.js',
   'favicon.ico',
-  'favicon.png'
+  'favicon.png',
+  'manifest.json',
+  'sw.js'
 ]);
 
 // Block access to sensitive files, source code, and hidden dotfiles
