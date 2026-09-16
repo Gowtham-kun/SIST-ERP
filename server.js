@@ -139,11 +139,11 @@ function createRateLimiter({ windowMs, maxRequests, message }) {
   };
 }
 
-// Broad IP-level flood protection (300 requests / 15m) to protect server resources
-// without bottlenecking shared campus/hostel Wi-Fi networks.
+// Broad IP-level flood protection (3,000 requests / 15m) to protect server resources
+// from botnets without bottlenecking massive shared campus/hostel Wi-Fi networks.
 const authRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  maxRequests: 300,
+  maxRequests: 3000,
   message: 'Too many requests from this network. Please wait a few minutes before trying again.'
 });
 
@@ -1636,7 +1636,15 @@ async function loginHandler(req, res) {
       Password: cleanPass
     });
 
-    if (!loginData || loginData.status !== true) {
+    if (!loginData) {
+      console.log(`[REST-Auth] ERP server unreachable or timed out for ${maskedReg}`);
+      return res.status(503).json({
+        success: false,
+        message: 'Official ERP server is currently unreachable or slow. Please try again in a moment.'
+      });
+    }
+
+    if (loginData.status !== true) {
       recordAccountLoginFailure(cleanReg);
       const errorMsg = loginData?.message || 'Invalid Register Number or Password.';
       console.log(`[REST-Auth] Authentication failed for ${maskedReg}`);
