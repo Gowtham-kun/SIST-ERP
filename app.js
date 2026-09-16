@@ -808,6 +808,39 @@ function renderAttendance() {
   </div>`;
 }
 
+function formatTo12Hour(tStr) {
+  if (!tStr || typeof tStr !== 'string') return '';
+  const cleaned = tStr.trim();
+  if (/\b(am|pm)\b/i.test(cleaned)) {
+    return cleaned.toLowerCase();
+  }
+  const m = cleaned.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return cleaned;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${min} ${ampm}`;
+}
+
+function formatTimeRange(fromStr, toStr, rawRange) {
+  const fromClean = (fromStr || '').trim();
+  const toClean = (toStr || '').trim();
+  if (fromClean && toClean) {
+    const f12 = formatTo12Hour(fromClean);
+    const t12 = formatTo12Hour(toClean);
+    return `${f12} - ${t12}`;
+  }
+  if (rawRange && typeof rawRange === 'string' && rawRange.includes('-')) {
+    const parts = rawRange.split('-');
+    const f12 = formatTo12Hour(parts[0].trim());
+    const t12 = formatTo12Hour(parts[1].trim());
+    return `${f12} - ${t12}`;
+  }
+  return rawRange ? formatTo12Hour(rawRange) : '';
+}
+
 // ── Subject Attendance Calculation & Lab Segregation Engine ────────────────────
 function normalizeSubName(name) {
   if (!name) return '';
@@ -836,7 +869,10 @@ function getEnrichedTimetable(rawTt, isJunior = false) {
 
   const headerMap = new Map();
   if (Array.isArray(tt.headers)) {
-    tt.headers.filter(h => !h.hour || h.hour <= 10).forEach(h => headerMap.set(h.hour, h));
+    tt.headers.filter(h => !h.hour || h.hour <= 10).forEach(h => {
+      const formattedTime = formatTimeRange('', '', h.time || '');
+      headerMap.set(h.hour, { ...h, time: formattedTime || h.time || '' });
+    });
   }
 
   days.forEach(day => {
@@ -869,6 +905,9 @@ function getEnrichedTimetable(rawTt, isJunior = false) {
       // This prevents juniors' Period 4 lectures from ever being wiped into lunch.
       const isLunchSlot = isExplicitLunch || (!hasActualSubject && Boolean(hInfo?.isLunch));
       const isBreakSlot = !isLunchSlot && (isExplicitBreak || (!hasActualSubject && Boolean(hInfo?.isBreak)));
+
+      // Standardize slot time
+      slots[i].time = formatTimeRange('', '', slots[i].time || '') || hInfo?.time || '';
 
       if (isBreakSlot || isLunchSlot) {
         slots[i].isBreak = isBreakSlot;
@@ -920,7 +959,47 @@ function getEnrichedTimetable(rawTt, isJunior = false) {
     schedule[day] = slots;
   });
 
-  return { ...tt, days, schedule };
+  // Dynamically derive headers and timing ranges for all hours
+  const allHours = new Set();
+  days.forEach(d => {
+    (schedule[d] || []).forEach(s => {
+      if (s.hour && s.hour >= 1 && s.hour <= 10) allHours.add(s.hour);
+    });
+  });
+  if (Array.isArray(tt.headers)) {
+    tt.headers.forEach(h => {
+      if (h.hour && h.hour >= 1 && h.hour <= 10) allHours.add(h.hour);
+    });
+  }
+
+  const sortedHours = Array.from(allHours).sort((a, b) => a - b);
+  const finalHeaders = sortedHours.map(hNum => {
+    const existing = headerMap.get(hNum);
+    const hourSlots = days.map(d => (schedule[d] || []).find(s => s.hour === hNum)).filter(Boolean);
+    const hasAcademic = hourSlots.some(s => !s.isBreak && !s.isLunch && s.subjectName && !/^(break|lunch)$/i.test(s.subjectName));
+    const isAllLunch = hourSlots.length > 0 && hourSlots.every(s => s.isLunch);
+    const isAllBreak = hourSlots.length > 0 && hourSlots.every(s => s.isBreak);
+
+    let dynamicTime = existing?.time || '';
+    if (!dynamicTime) {
+      const slotWithTime = hourSlots.find(s => s.time && s.time.trim().length > 0);
+      if (slotWithTime) dynamicTime = slotWithTime.time;
+    }
+
+    const isLunch = !hasAcademic && (isAllLunch || Boolean(existing?.isLunch));
+    const isBreak = !hasAcademic && !isLunch && (isAllBreak || Boolean(existing?.isBreak));
+    const label = isLunch ? 'Lunch' : (isBreak ? 'Break' : (existing?.label || `P${hNum}`));
+
+    return {
+      hour: hNum,
+      time: dynamicTime,
+      isBreak,
+      isLunch,
+      label
+    };
+  });
+
+  return { ...tt, days, schedule, headers: finalHeaders.length > 0 ? finalHeaders : tt.headers };
 }
 
 function calculateSubjectAttendance(parsedLogs, enrichedTt) {
@@ -1674,7 +1753,7 @@ function renderTimetable() {
       </div>
     </div>
 
-    ${layout === 'day' ? renderDayTimeline(tt, days, activeDay, todayName) : renderWeeklyGrid(tt, days, todayName)}
+    ${layout === 'day' ? renderDayTimeline(tt, days, activeDay, todayName) : renderWeeklyGrid(tt, days, todayName, isJunior)}
 
     <!-- Course Instructors & Faculty Directory (Clean minimal cards, no subject codes) -->
     ${subjects.length > 0 ? `
@@ -1810,7 +1889,7 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
   </div>`;
 }
 
-function renderWeeklyGrid(tt, days, todayName) {
+function renderWeeklyGrid(tt, days, todayName, isJunior = false) {
   const now = new Date();
   const currentDayOfWeek = now.getDay();
   const monOffset = currentDayOfWeek === 0 ? 1 : (1 - currentDayOfWeek);
@@ -1822,15 +1901,23 @@ function renderWeeklyGrid(tt, days, todayName) {
 
   const headers = (Array.isArray(tt.headers) && tt.headers.length > 0)
     ? tt.headers.filter(h => !h.hour || h.hour <= 10)
-    : [
-      { hour: 1, time: '09:00 - 10:00' },
-      { hour: 2, time: '10:00 - 11:00' },
+    : (isJunior ? [
+      { hour: 1, time: '09:00 - 10:00', label: 'P1' },
+      { hour: 2, time: '10:00 - 11:00', label: 'P2' },
+      { hour: 3, time: '11:00 - 11:15', isBreak: true, label: 'Break' },
+      { hour: 4, time: '11:15 - 12:15', label: 'P3' },
+      { hour: 5, time: '12:15 - 01:15', isLunch: true, label: 'Lunch' },
+      { hour: 6, time: '01:15 - 02:15', label: 'P5' },
+      { hour: 7, time: '02:15 - 03:15', label: 'P6' }
+    ] : [
+      { hour: 1, time: '09:00 - 10:00', label: 'P1' },
+      { hour: 2, time: '10:00 - 11:00', label: 'P2' },
       { hour: 3, time: '11:00 - 11:15', isBreak: true, label: 'Break' },
       { hour: 4, time: '11:15 - 12:15', isLunch: true, label: 'Lunch' },
-      { hour: 5, time: '12:15 - 01:15' },
-      { hour: 6, time: '01:15 - 02:15' },
-      { hour: 7, time: '02:15 - 03:15' }
-    ];
+      { hour: 5, time: '12:15 - 01:15', label: 'P5' },
+      { hour: 6, time: '01:15 - 02:15', label: 'P6' },
+      { hour: 7, time: '02:15 - 03:15', label: 'P7' }
+    ]);
 
   return `
   <div class="glass-card rounded-2xl border border-white/10 overflow-hidden">
@@ -1884,9 +1971,13 @@ function renderWeeklyGrid(tt, days, todayName) {
               </td>
               ${slots.map(slot => {
                 if (slot.isBreak || slot.isLunch) {
+                  const dispTime = (slot.time || '').replace(/am|pm/gi, '').trim();
                   return `
                   <td class="p-1.5 sm:p-2 text-center bg-amber-500/[0.02] border-b border-white/5 align-middle">
-                    <span class="text-[9px] sm:text-[10px] text-amber-400/80 font-medium">${slot.isLunch ? 'Lunch' : 'Break'}</span>
+                    <div class="flex flex-col items-center justify-center">
+                      <span class="text-[9px] sm:text-[10px] text-amber-400/90 font-bold">${slot.isLunch ? 'Lunch' : 'Break'}</span>
+                      ${dispTime ? `<span class="text-[8px] text-amber-400/70 font-mono mt-0.5 leading-tight">${esc(dispTime)}</span>` : ''}
+                    </div>
                   </td>`;
                 }
                 const isPractical = slot.type === 'PRACTICAL' || slot.isLab;

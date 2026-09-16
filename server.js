@@ -865,6 +865,39 @@ function getSlotDurationMinutes(timeStr, fromStr, toStr) {
   return null;
 }
 
+function formatTo12Hour(tStr) {
+  if (!tStr || typeof tStr !== 'string') return '';
+  const cleaned = tStr.trim();
+  if (/\b(am|pm)\b/i.test(cleaned)) {
+    return cleaned.toLowerCase();
+  }
+  const m = cleaned.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return cleaned;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${min} ${ampm}`;
+}
+
+function formatTimeRange(fromStr, toStr, rawRange) {
+  const fromClean = (fromStr || '').trim();
+  const toClean = (toStr || '').trim();
+  if (fromClean && toClean) {
+    const f12 = formatTo12Hour(fromClean);
+    const t12 = formatTo12Hour(toClean);
+    return `${f12} - ${t12}`;
+  }
+  if (rawRange && typeof rawRange === 'string' && rawRange.includes('-')) {
+    const parts = rawRange.split('-');
+    const f12 = formatTo12Hour(parts[0].trim());
+    const t12 = formatTo12Hour(parts[1].trim());
+    return `${f12} - ${t12}`;
+  }
+  return rawRange ? formatTo12Hour(rawRange) : '';
+}
+
 function detectBreakOrLunch(item, subjectName, subjectCode, fromStr, toStr, timeStr) {
   const from = fromStr || item?.TimeFrom || item?.FromTime || item?.StartTime || '';
   const to = toStr || item?.TimeTo || item?.ToTime || item?.EndTime || '';
@@ -947,7 +980,7 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       if (!hourNum || isNaN(hourNum) || hourNum > 10) return;
       const from = (h.TimeFrom || h.FromTime || h.StartTime || '').trim();
       const to = (h.TimeTo || h.ToTime || h.EndTime || '').trim();
-      const timeStr = from && to ? `${from} - ${to}` : (from || to || '');
+      const timeStr = formatTimeRange(from, to, h.Time || '');
       const hourName = (h.HourName || h.TypeName || h.Name || '').trim();
       const breakType = Number(h.BreakType || h.HourType || 0);
 
@@ -971,7 +1004,7 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       if (!hourNum || isNaN(hourNum) || hourNum > 10) return;
       const from = (slot.TimeFrom || '').trim();
       const to = (slot.TimeTo || '').trim();
-      const timeStr = from && to ? `${from} - ${to}` : '';
+      const timeStr = formatTimeRange(from, to, slot.Time || '');
       const hourType = Number(slot.HourType || 0);
 
       if (!dynamicHoursMap.has(hourNum)) {
@@ -1006,16 +1039,16 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     const fallbackDefaults = isJunior ? [
       { hour: 1, time: '09:00 am - 10:00 am', from: '09:00 am', to: '10:00 am', hourName: 'P1' },
       { hour: 2, time: '10:00 am - 11:00 am', from: '10:00 am', to: '11:00 am', hourName: 'P2' },
-      { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break' },
+      { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break', isBreak: true },
       { hour: 4, time: '11:15 am - 12:15 pm', from: '11:15 am', to: '12:15 pm', hourName: 'P3' },
-      { hour: 5, time: '12:15 pm - 01:15 pm', from: '12:15 pm', to: '01:15 pm', hourName: 'Lunch' },
+      { hour: 5, time: '12:15 pm - 01:15 pm', from: '12:15 pm', to: '01:15 pm', hourName: 'Lunch', isLunch: true },
       { hour: 6, time: '01:15 pm - 02:15 pm', from: '01:15 pm', to: '02:15 pm', hourName: 'P5' },
       { hour: 7, time: '02:15 pm - 03:15 pm', from: '02:15 pm', to: '03:15 pm', hourName: 'P6' }
     ] : [
       { hour: 1, time: '09:00 am - 10:00 am', from: '09:00 am', to: '10:00 am', hourName: 'P1' },
       { hour: 2, time: '10:00 am - 11:00 am', from: '10:00 am', to: '11:00 am', hourName: 'P2' },
-      { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break' },
-      { hour: 4, time: '11:15 am - 12:15 pm', from: '11:15 am', to: '12:15 pm', hourName: 'Lunch' },
+      { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break', isBreak: true },
+      { hour: 4, time: '11:15 am - 12:15 pm', from: '11:15 am', to: '12:15 pm', hourName: 'Lunch', isLunch: true },
       { hour: 5, time: '12:15 pm - 01:15 pm', from: '12:15 pm', to: '01:15 pm', hourName: 'P5' },
       { hour: 6, time: '01:15 pm - 02:15 pm', from: '01:15 pm', to: '02:15 pm', hourName: 'P6' },
       { hour: 7, time: '02:15 pm - 03:15 pm', from: '02:15 pm', to: '03:15 pm', hourName: 'P7' }
@@ -1023,7 +1056,27 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     fallbackDefaults.forEach(h => dynamicHoursMap.set(h.hour, h));
   }
 
-  // 3. Dynamic Break and Lunch evaluation for EVERY period across any college year
+  // 3. Dynamic timing interpolation for any missing period timings from adjacent hours:
+  const sortedHourKeys = Array.from(dynamicHoursMap.keys()).sort((a, b) => a - b);
+  for (const hNum of sortedHourKeys) {
+    const curr = dynamicHoursMap.get(hNum);
+    if (!curr.time || !curr.time.includes('-')) {
+      const prev = dynamicHoursMap.get(hNum - 1);
+      const next = dynamicHoursMap.get(hNum + 1);
+      const prevEnd = prev?.to || (prev?.time && prev.time.includes('-') ? prev.time.split('-')[1].trim() : null);
+      const nextStart = next?.from || (next?.time && next.time.includes('-') ? next.time.split('-')[0].trim() : null);
+      if (prevEnd && nextStart) {
+        curr.from = prevEnd;
+        curr.to = nextStart;
+        curr.time = formatTimeRange(prevEnd, nextStart);
+      }
+    }
+    if (curr.time) {
+      curr.time = formatTimeRange(curr.from, curr.to, curr.time);
+    }
+  }
+
+  // 4. Dynamic Break and Lunch evaluation for EVERY period across any college year
   dynamicHoursMap.forEach((hourObj, hourNum) => {
     if (hourNum > 10) {
       dynamicHoursMap.delete(hourNum);
@@ -1035,29 +1088,39 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     const timeStr = hourObj.time || '';
     const hourName = hourObj.hourName || '';
 
-    const { isBreak: detectedBreak, isLunch: detectedLunch, duration } = detectBreakOrLunch(
-      hourObj, hourName, '', from, to, timeStr
-    );
+    let isBreak = false;
+    let isLunch = false;
 
-    let isBreak = detectedBreak;
-    let isLunch = detectedLunch;
+    // Periods with actual academic classes scheduled are NEVER break or lunch
+    if (academicCount === 0) {
+      const { isBreak: detectedBreak, isLunch: detectedLunch, duration } = detectBreakOrLunch(
+        hourObj, hourName, '', from, to, timeStr
+      );
 
-    // A period with duration <= 25 mins is definitively an interval/break (e.g. 11:00:00 - 11:15:00 is 15 mins)
-    if (!isLunch && !isBreak && duration !== null && duration > 0 && duration <= 25) {
-      isBreak = true;
-    }
+      isBreak = detectedBreak;
+      isLunch = detectedLunch;
 
-    // A period with 0 academic classes across the week during midday (11:00 AM - 2:30 PM) is Lunch
-    if (!isBreak && !isLunch && academicCount === 0) {
-      const startMin = parseTimeMinutes(from) || (timeStr.includes('-') ? parseTimeMinutes(timeStr.split('-')[0]) : null);
-      if (startMin !== null && startMin >= 660 && startMin <= 870) {
-        isLunch = true;
-      } else if (hourNum === 3) {
+      // A period with duration <= 25 mins is definitively an interval/break (e.g. 11:00:00 - 11:15:00 is 15 mins)
+      if (!isLunch && !isBreak && duration !== null && duration > 0 && duration <= 25) {
         isBreak = true;
-      } else if (hourNum === 4 && !isJunior) {
-        isLunch = true;
-      } else if (hourNum === 5 && isJunior) {
-        isLunch = true;
+      }
+
+      // A period with 0 academic classes during midday (11:00 AM - 2:30 PM):
+      if (!isBreak && !isLunch) {
+        const startMin = parseTimeMinutes(from) || (timeStr.includes('-') ? parseTimeMinutes(timeStr.split('-')[0]) : null);
+        if (startMin !== null && startMin >= 660 && startMin <= 870) {
+          if (duration !== null && duration <= 25) {
+            isBreak = true;
+          } else {
+            isLunch = true;
+          }
+        } else if (hourNum === 3) {
+          isBreak = true;
+        } else if (hourNum === 4 && !isJunior) {
+          isLunch = true;
+        } else if (hourNum === 5 && isJunior) {
+          isLunch = true;
+        }
       }
     }
 
@@ -1126,11 +1189,13 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       isBreak = Boolean(hourInfo.isBreak && !hourInfo.isLunch);
     }
 
-    // If this period is Break or Lunch, populate as clean break/lunch slot
+    // If this period is Break or Lunch, populate as clean break/lunch slot with dynamic timing
     if (isBreak || isLunch) {
+      const rawSlotTime = (slot.TimeFrom && slot.TimeTo) ? `${slot.TimeFrom} - ${slot.TimeTo}` : '';
+      const finalSlotTime = formatTimeRange('', '', rawSlotTime) || hourInfo.time || '';
       daySlotsMap[day].set(hourNum, {
         hour: hourNum,
-        time: hourInfo.time || (slot.TimeFrom && slot.TimeTo ? `${slot.TimeFrom} - ${slot.TimeTo}` : ''),
+        time: finalSlotTime,
         subjectCode: isLunch ? 'LUNCH' : 'BREAK',
         subjectName: isLunch ? 'Lunch Break' : 'Morning Break',
         staff: '',
