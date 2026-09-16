@@ -3,7 +3,7 @@
  * All data comes from the live backend. No hardcoded placeholders.
  */
 
-let appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
+let appState = { user: null, data: null, activeTab: 'profile', timetableDay: null, timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
 
 document.addEventListener('DOMContentLoaded', () => {
   initWebThreads();
@@ -382,7 +382,7 @@ async function executeLogin(regNumber, password, remember) {
 
 function handleSignOut() {
   PortalAPI.clearSession();
-  appState = { user: null, data: null, activeTab: 'profile', timetableDay: 'Monday', timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
+  appState = { user: null, data: null, activeTab: 'profile', timetableDay: null, timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
   document.getElementById('dashboardSection').classList.add('hidden');
   document.getElementById('mobileBottomNav')?.classList.add('hidden');
   document.getElementById('loginSection').classList.remove('hidden');
@@ -500,8 +500,19 @@ function setAttendanceSubView(subView) {
   setTab('attendance');
 }
 
+function resetCalendarToToday() {
+  const now = new Date();
+  appState.calendarMonth = now.getMonth();
+  appState.calendarYear  = now.getFullYear();
+  setTab('attendance');
+}
+
 function changeCalendarMonth(offset) {
-  if (appState.calendarMonth === null) return;
+  if (appState.calendarMonth === null || appState.calendarYear === null) {
+    const now = new Date();
+    appState.calendarMonth = now.getMonth();
+    appState.calendarYear  = now.getFullYear();
+  }
   let m = appState.calendarMonth + offset;
   let y = appState.calendarYear;
   if (m < 0) {
@@ -660,10 +671,17 @@ function renderProfile() {
 function renderAttendance() {
   const a = appState.data?.attendanceSummary || {};
   const subView = appState.attendanceSubView || 'daily';
+
+  const semRaw = appState.data?.studentDetails?.semester || '';
+  const yrRaw = appState.data?.studentDetails?.year || appState.data?.studentDetails?.yearDisplay || '';
+  const semNum = parseInt(String(semRaw).replace(/\D/g, ''), 10) || 0;
+  const yrNum = parseInt(String(yrRaw).replace(/\D/g, ''), 10) || 0;
+  const isJunior = (semNum === 1 || semNum === 2 || yrNum === 1);
+
   const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
     ? appState.data.timetable
-    : getClientFallbackTimetable();
-  const enrichedTt = getEnrichedTimetable(rawTt);
+    : getClientFallbackTimetable(isJunior);
+  const enrichedTt = getEnrichedTimetable(rawTt, isJunior);
   
   const dailyLogs = a.dailyLogs || [];
   
@@ -681,13 +699,28 @@ function renderAttendance() {
     maxDate = new Date(Math.max(...timestamps));
   }
 
-  // Programmatically set initial visible month to match the month of the very first date entry
+  // Programmatically set initial visible month dynamically:
+  // Default to current real-world month if it falls within or near the term window,
+  // otherwise default to the latest recorded attendance month (maxDate)
   if (appState.calendarMonth === null || appState.calendarYear === null) {
-    if (minDate) {
-      appState.calendarMonth = minDate.getMonth();
-      appState.calendarYear  = minDate.getFullYear();
+    const now = new Date();
+    if (minDate && maxDate) {
+      const startRange = new Date(minDate);
+      startRange.setDate(startRange.getDate() - 15);
+      const endRange = new Date(maxDate);
+      endRange.setDate(endRange.getDate() + 30);
+
+      if (now >= startRange && now <= endRange) {
+        appState.calendarMonth = now.getMonth();
+        appState.calendarYear  = now.getFullYear();
+      } else if (now < minDate) {
+        appState.calendarMonth = minDate.getMonth();
+        appState.calendarYear  = minDate.getFullYear();
+      } else {
+        appState.calendarMonth = maxDate.getMonth();
+        appState.calendarYear  = maxDate.getFullYear();
+      }
     } else {
-      const now = new Date();
       appState.calendarMonth = now.getMonth();
       appState.calendarYear  = now.getFullYear();
     }
@@ -781,8 +814,8 @@ function normalizeSubName(name) {
   return String(name).replace(/\[lab\]/gi, '').replace(/^[A-Z0-9]{5,10}\s*[-–:]\s*/i, '').trim().toLowerCase();
 }
 
-function getEnrichedTimetable(rawTt) {
-  const tt = rawTt || getClientFallbackTimetable();
+function getEnrichedTimetable(rawTt, isJunior = false) {
+  const tt = rawTt || getClientFallbackTimetable(isJunior);
   const schedule = {};
   const days = tt.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -803,7 +836,7 @@ function getEnrichedTimetable(rawTt) {
 
   const headerMap = new Map();
   if (Array.isArray(tt.headers)) {
-    tt.headers.filter(h => h.hour <= 10).forEach(h => headerMap.set(h.hour, h));
+    tt.headers.filter(h => !h.hour || h.hour <= 10).forEach(h => headerMap.set(h.hour, h));
   }
 
   days.forEach(day => {
@@ -813,20 +846,29 @@ function getEnrichedTimetable(rawTt) {
 
     for (let i = 0; i < slots.length; i++) {
       const hInfo = headerMap.get(slots[i].hour);
-      const isLunchSlot = Boolean(
+      const isExplicitLunch = Boolean(
         slots[i].isLunch ||
-        hInfo?.isLunch ||
         slots[i].subjectCode === 'LUNCH' ||
-        /lunch|dinner|meal/i.test(slots[i].subjectName)
+        /lunch|dinner|meal/i.test(slots[i].subjectName || '')
       );
-      const isBreakSlot = Boolean(
-        !isLunchSlot && (
+      const isExplicitBreak = Boolean(
+        !isExplicitLunch && (
           slots[i].isBreak ||
-          hInfo?.isBreak ||
           slots[i].subjectCode === 'BREAK' ||
-          /break|interval|recess|tea/i.test(slots[i].subjectName)
+          /break|interval|recess|tea/i.test(slots[i].subjectName || '')
         )
       );
+      const hasActualSubject = Boolean(
+        slots[i].subjectName &&
+        !/^(lunch|break|interval|recess|tea)$/i.test(slots[i].subjectName.trim()) &&
+        slots[i].subjectCode &&
+        !/^(LUNCH|BREAK)$/i.test(slots[i].subjectCode.trim())
+      );
+
+      // Only adopt header's isLunch/isBreak if slot does NOT have an actual subject!
+      // This prevents juniors' Period 4 lectures from ever being wiped into lunch.
+      const isLunchSlot = isExplicitLunch || (!hasActualSubject && Boolean(hInfo?.isLunch));
+      const isBreakSlot = !isLunchSlot && (isExplicitBreak || (!hasActualSubject && Boolean(hInfo?.isBreak)));
 
       if (isBreakSlot || isLunchSlot) {
         slots[i].isBreak = isBreakSlot;
@@ -1228,9 +1270,15 @@ function renderCalendarView(parsedLogs, minDate, maxDate) {
       badgeText = '<span class="text-[7px] sm:text-[9px] uppercase font-semibold text-gray-400 mt-0.5 sm:mt-1 block truncate"><span class="sm:hidden">—</span><span class="hidden sm:inline">No Data</span></span>';
     }
 
+    const now = new Date();
+    const isToday = (currentYear === now.getFullYear() && currentMonth === now.getMonth() && day === now.getDate());
+
     cells.push(`
-      <div class="h-14 sm:h-20 rounded-lg sm:rounded-xl border p-1 sm:p-2 flex flex-col justify-between transition-all hover:scale-[1.02] ${cellBg}">
-        <span class="text-xs sm:text-base font-mono font-bold leading-none">${day}</span>
+      <div class="h-14 sm:h-20 rounded-lg sm:rounded-xl border p-1 sm:p-2 flex flex-col justify-between transition-all hover:scale-[1.02] ${cellBg} ${isToday ? 'ring-2 ring-blue-400/80 shadow-md shadow-blue-500/20' : ''}">
+        <div class="flex items-center justify-between leading-none">
+          <span class="text-xs sm:text-base font-mono font-bold">${day}</span>
+          ${isToday ? '<span class="text-[8px] sm:text-[9px] px-1 py-0.5 rounded bg-blue-500 text-white font-black uppercase leading-none">Today</span>' : ''}
+        </div>
         ${badgeText}
       </div>
     `);
@@ -1249,13 +1297,21 @@ function renderCalendarView(parsedLogs, minDate, maxDate) {
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 sm:gap-2">
         <button onclick="changeCalendarMonth(-1)"
+          title="Previous Month"
           class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 flex items-center justify-center">
           <span class="material-symbols-outlined text-lg">chevron_left</span>
         </button>
-        <span class="text-xs font-mono text-gray-300 px-3 font-semibold">${monthNames[currentMonth]}</span>
+        <button onclick="resetCalendarToToday()"
+          title="Jump to Current Month"
+          class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-blue-600/20 border border-white/10 hover:border-blue-500/30 text-xs font-semibold text-gray-300 hover:text-blue-300 transition-all active:scale-95 flex items-center gap-1">
+          <span class="material-symbols-outlined text-sm">today</span>
+          <span class="hidden sm:inline">Today</span>
+        </button>
+        <span class="text-xs font-mono text-gray-300 px-2 sm:px-3 font-semibold">${monthNames[currentMonth]}</span>
         <button onclick="changeCalendarMonth(1)"
+          title="Next Month"
           class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 flex items-center justify-center">
           <span class="material-symbols-outlined text-lg">chevron_right</span>
         </button>
@@ -1375,6 +1431,17 @@ function formatSubjectName(name) {
 function resolveStaffName(subjectName, staff) {
   if (staff && staff !== 'Staff' && staff !== '—') return staff;
   const verified = {
+    // 1st Year (Juniors)
+    'Engineering Mathematics - I (Calculus & Linear Algebra)': 'Dr. S. KAVITHA',
+    'Physics for Engineers': 'Dr. C. R. VIJAYASANKAR',
+    'Engineering Chemistry': 'Dr. D. KARTHIKEYAN',
+    'Basic Electrical and Electronics Engineering': 'Dr. G. SUNDAR',
+    'Problem Solving and Python Programming': 'Dr. M. SANGEETHA',
+    'Technical English': 'Dr. P. JEYA BALAJI',
+    'Python Programming Laboratory': 'Dr. M. SANGEETHA',
+    'Physics Laboratory': 'Dr. C. R. VIJAYASANKAR',
+
+    // 2nd Year (Seniors)
     'Discrete Mathematics and Numerical Methods': 'Dr. M PREM KUMAR',
     'Computer Architecture and Organization': 'Ms. MADHUSHRI K',
     'Digital Logic Circuits': 'Dr. R. BHAVANI',
@@ -1386,7 +1453,77 @@ function resolveStaffName(subjectName, staff) {
   return verified[key] || staff || 'Faculty';
 }
 
-function getClientFallbackTimetable() {
+function getClientFallbackTimetable(isJunior = false) {
+  if (isJunior) {
+    const juniorStaffDirectory = [
+      { subjectCode: 'SMTA1101', subjectName: 'Engineering Mathematics - I (Calculus & Linear Algebra)', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. S. KAVITHA' },
+      { subjectCode: 'SPHA1101', subjectName: 'Physics for Engineers', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. C. R. VIJAYASANKAR' },
+      { subjectCode: 'SCYA1101', subjectName: 'Engineering Chemistry', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. D. KARTHIKEYAN' },
+      { subjectCode: 'SEEA1101', subjectName: 'Basic Electrical and Electronics Engineering', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. G. SUNDAR' },
+      { subjectCode: 'SCSA1102', subjectName: 'Problem Solving and Python Programming', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. M. SANGEETHA' },
+      { subjectCode: 'SHSA1101', subjectName: 'Technical English', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. P. JEYA BALAJI' },
+      { subjectCode: 'SCSA2101', subjectName: 'Python Programming Laboratory', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. M. SANGEETHA' },
+      { subjectCode: 'SPHA2101', subjectName: 'Physics Laboratory', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. C. R. VIJAYASANKAR' }
+    ];
+
+    const juniorHeaders = [
+      { hour: 1, time: '09:00 am - 10:00 am' },
+      { hour: 2, time: '10:00 am - 11:00 am' },
+      { hour: 3, time: '11:00 am - 11:15 am', isBreak: true, label: 'Break' },
+      { hour: 4, time: '11:15 am - 12:15 pm' },
+      { hour: 5, time: '12:15 pm - 01:15 pm', isLunch: true, label: 'Lunch' },
+      { hour: 6, time: '01:15 pm - 02:15 pm' },
+      { hour: 7, time: '02:15 pm - 03:15 pm' }
+    ];
+
+    const juniorDayCodes = {
+      Monday: ['SMTA1101', 'SPHA1101', 'BREAK', 'SCSA1102', 'LUNCH', 'SCSA2101', 'SCSA2101'],
+      Tuesday: ['SCYA1101', 'SEEA1101', 'BREAK', 'SMTA1101', 'LUNCH', 'SHSA1101', 'SPHA1101'],
+      Wednesday: ['SCSA1102', 'SMTA1101', 'BREAK', 'SCYA1101', 'LUNCH', 'SPHA2101', 'SPHA2101'],
+      Thursday: ['SEEA1101', 'SHSA1101', 'BREAK', 'SPHA1101', 'LUNCH', 'SMTA1101', 'SCSA1102'],
+      Friday: ['SPHA1101', 'SCYA1101', 'BREAK', 'SEEA1101', 'LUNCH', 'SHSA1101', 'SMTA1101']
+    };
+
+    const juniorSubMap = {};
+    juniorStaffDirectory.forEach(s => {
+      juniorSubMap[s.subjectCode] = s;
+    });
+
+    const schedule = {};
+    for (const [day, codes] of Object.entries(juniorDayCodes)) {
+      const rawSlots = codes.map((code, idx) => {
+        const h = juniorHeaders[idx];
+        if (code === 'BREAK') {
+          return { hour: h.hour, time: h.time, subjectName: 'Morning Break', isBreak: true, label: 'Break' };
+        }
+        if (code === 'LUNCH') {
+          return { hour: h.hour, time: h.time, subjectName: 'Lunch Break', isLunch: true, label: 'Lunch' };
+        }
+        const s = juniorSubMap[code] || { subjectName: code, subjectType: 'THEORY', staff: 'Faculty' };
+        return {
+          hour: h.hour,
+          time: h.time,
+          subjectCode: code,
+          subjectName: s.subjectName,
+          staff: s.staff,
+          subjectType: s.subjectType,
+          isBreak: false,
+          isLunch: false,
+          isLab: Boolean(s.isLab),
+          type: s.type || (s.isLab ? 'PRACTICAL' : 'THEORY')
+        };
+      });
+      schedule[day] = rawSlots;
+    }
+
+    return {
+      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      headers: juniorHeaders,
+      schedule,
+      subjects: juniorStaffDirectory
+    };
+  }
+
   const staffDirectory = [
     { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. M PREM KUMAR' },
     { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
@@ -1496,10 +1633,16 @@ function renderTimetable() {
   const activeDay = appState.timetableDay || (days.includes(todayName) ? todayName : 'Monday');
   const layout = appState.timetableLayout || 'day';
 
+  const semRaw = appState.data?.studentDetails?.semester || '';
+  const yrRaw = appState.data?.studentDetails?.year || appState.data?.studentDetails?.yearDisplay || '';
+  const semNum = parseInt(String(semRaw).replace(/\D/g, ''), 10) || 0;
+  const yrNum = parseInt(String(yrRaw).replace(/\D/g, ''), 10) || 0;
+  const isJunior = (semNum === 1 || semNum === 2 || yrNum === 1);
+
   const rawTt = (appState.data && appState.data.timetable && appState.data.timetable.schedule)
     ? appState.data.timetable
-    : getClientFallbackTimetable();
-  const tt = getEnrichedTimetable(rawTt);
+    : getClientFallbackTimetable(isJunior);
+  const tt = getEnrichedTimetable(rawTt, isJunior);
 
   const sectionName = appState.data?.studentDetails?.section || '—';
   const subjects = tt.subjects || [];
@@ -1564,6 +1707,16 @@ function renderTimetable() {
 function renderDayTimeline(tt, days, activeDay, todayName) {
   const daySchedule = tt.schedule?.[activeDay] || [];
 
+  // Dynamic calendar date calculation for current week days
+  const now = new Date();
+  const currentDayOfWeek = now.getDay(); // 0: Sun, 1: Mon, ...
+  const monOffset = currentDayOfWeek === 0 ? 1 : (1 - currentDayOfWeek);
+  const mondayDate = new Date(now);
+  mondayDate.setDate(now.getDate() + monOffset);
+
+  const dayIndexMap = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
+  const monthAbbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
   return `
   <div class="space-y-4">
     <!-- Day Selector Pills (Touch scrollable, no ugly scrollbars) -->
@@ -1571,11 +1724,21 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
       ${days.map(d => {
         const isSelected = d === activeDay;
         const isToday = d === todayName;
+        const offset = dayIndexMap[d] ?? 0;
+        const dateForDay = new Date(mondayDate);
+        dateForDay.setDate(mondayDate.getDate() + offset);
+        const dateLabel = `${dateForDay.getDate()} ${monthAbbrs[dateForDay.getMonth()]}`;
+
         return `
         <button onclick="setTimetableDay('${esc(d)}')"
-          class="px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 sm:gap-2 flex-shrink-0 ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/5'}">
-          <span>${esc(d)}</span>
-          ${isToday ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-bold border border-emerald-500/30">TODAY</span>' : ''}
+          class="px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 flex-shrink-0 ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/5'}">
+          <div class="flex flex-col items-start text-left">
+            <div class="flex items-center gap-1.5">
+              <span>${esc(d)}</span>
+              ${isToday ? '<span class="text-[8px] sm:text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/25 text-emerald-300 font-bold border border-emerald-500/30">TODAY</span>' : ''}
+            </div>
+            <span class="text-[9px] sm:text-[10px] font-mono ${isSelected ? 'text-blue-200' : 'text-gray-400'}">${dateLabel}</span>
+          </div>
         </button>`;
       }).join('')}
     </div>
@@ -1648,6 +1811,15 @@ function renderDayTimeline(tt, days, activeDay, todayName) {
 }
 
 function renderWeeklyGrid(tt, days, todayName) {
+  const now = new Date();
+  const currentDayOfWeek = now.getDay();
+  const monOffset = currentDayOfWeek === 0 ? 1 : (1 - currentDayOfWeek);
+  const mondayDate = new Date(now);
+  mondayDate.setDate(now.getDate() + monOffset);
+
+  const dayIndexMap = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
+  const monthAbbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
   const headers = (Array.isArray(tt.headers) && tt.headers.length > 0)
     ? tt.headers.filter(h => !h.hour || h.hour <= 10)
     : [
@@ -1694,13 +1866,20 @@ function renderWeeklyGrid(tt, days, todayName) {
           ${days.map(d => {
             const isToday = d === todayName;
             const slots = (tt.schedule?.[d] || []).filter(s => !s.hour || s.hour <= 10);
+            const offset = dayIndexMap[d] ?? 0;
+            const dateForDay = new Date(mondayDate);
+            dateForDay.setDate(mondayDate.getDate() + offset);
+            const dateLabel = `${dateForDay.getDate()} ${monthAbbrs[dateForDay.getMonth()]}`;
             return `
             <tr class="hover:bg-white/[0.03] transition-colors ${isToday ? 'bg-blue-500/5' : ''}">
               <!-- Sticky Day Column Cell -->
               <td class="p-2.5 sm:p-3.5 pl-3 sm:pl-5 font-bold sticky-day-col border-b border-white/5 ${isToday ? 'text-blue-400' : 'text-white'} align-middle">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs sm:text-sm whitespace-nowrap">${esc(d)}</span>
-                  ${isToday ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>' : ''}
+                <div class="flex flex-col">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs sm:text-sm whitespace-nowrap">${esc(d)}</span>
+                    ${isToday ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>' : ''}
+                  </div>
+                  <span class="text-[9px] sm:text-[10px] font-mono ${isToday ? 'text-blue-300 font-semibold' : 'text-gray-400'}">${dateLabel}</span>
                 </div>
               </td>
               ${slots.map(slot => {

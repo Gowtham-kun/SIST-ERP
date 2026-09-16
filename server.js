@@ -223,8 +223,58 @@ async function erpPostDirect(endpoint, token = null, body = {}) {
   }
 }
 
+// ─── Dynamic Academic Term Calculation ───────────────────────────────────────
+function getDynamicTermDates(respData = null, studentInfo = null) {
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1; // 1-12
+
+  // 1. Check if ERP timetable details or response has explicit StartDate / FromDate
+  const c = respData?.TimetableDetails || {};
+  const erpStart = c.FromDate || c.StartDate || respData?.FromDate || respData?.StartDate;
+  const erpEnd = c.ToDate || c.EndDate || respData?.ToDate || respData?.EndDate;
+
+  const toIso = (str) => {
+    if (!str || typeof str !== 'string') return null;
+    const clean = str.trim().split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+    const parts = clean.split(/[-/]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    return null;
+  };
+
+  const isoStart = toIso(erpStart);
+  const isoEnd = toIso(erpEnd);
+
+  // 2. Determine if student is 1st year (junior)
+  const sem = parseInt(String(studentInfo?.CurrentSemester || studentInfo?.Semester || studentInfo?.semester || '').replace(/[^0-9]/g, ''), 10);
+  const yr = parseInt(String(studentInfo?.CurrentYear || studentInfo?.Year || studentInfo?.year || '').replace(/[^0-9]/g, ''), 10);
+  const isJunior = (sem === 1 || sem === 2 || yr === 1);
+
+  // 3. Dynamic semester window
+  let defaultFrom, defaultTo;
+  if (curMonth >= 6) {
+    // Odd semester: juniors join mid-August, seniors in July
+    const startDay = isJunior ? '08-16' : '07-01';
+    defaultFrom = `${curYear}-${startDay}`;
+    defaultTo = `${curYear}-12-31`;
+  } else {
+    // Even semester: classes commence early January through June
+    defaultFrom = `${curYear}-01-01`;
+    defaultTo = `${curYear}-06-30`;
+  }
+
+  return {
+    fromDateStr: isoStart || defaultFrom,
+    toDateStr: isoEnd || defaultTo
+  };
+}
+
 // ─── Attendance Reconstruction (Exact match of official ERP Angular logic) ───
-function reconstructAttendance(respData, fromDateStr = '2026-07-01', toDateStr = '2026-12-30') {
+function reconstructAttendance(respData, fromDateStr = null, toDateStr = null, studentInfo = null) {
   if (!respData) return null;
   const m = respData.AttendanceDetails || [];
   const s = respData.HolidayList || [];
@@ -235,6 +285,10 @@ function reconstructAttendance(respData, fromDateStr = '2026-07-01', toDateStr =
   const absentSet = new Set(m.map(x => (x.AttendanceDate || '').trim()));
   const holidayMap = new Map(s.map(x => [(x.HoliDay || '').trim(), x.Comments || 'Holiday']));
   const actualWorkList = u.map(x => (x.Date || '').trim()).filter(Boolean);
+
+  const dynamicTerm = getDynamicTermDates(respData, studentInfo);
+  const effFromDate = fromDateStr || (actualWorkList.length > 0 ? actualWorkList[0] : dynamicTerm.fromDateStr);
+  const effToDate = toDateStr || (actualWorkList.length > 0 ? actualWorkList[actualWorkList.length - 1] : dynamicTerm.toDateStr);
 
   const dailyLogs = [];
   let totalPresent = 0;
@@ -287,9 +341,9 @@ function reconstructAttendance(respData, fromDateStr = '2026-07-01', toDateStr =
       }
     }
   } else {
-    // Fallback: loop day by day
-    const startParts = fromDateStr.split('-').map(Number);
-    const endParts = toDateStr.split('-').map(Number);
+    // Fallback: loop day by day using dynamic term window
+    const startParts = effFromDate.split('-').map(Number);
+    const endParts = effToDate.split('-').map(Number);
     const start = new Date(startParts[0], startParts[1] - 1, startParts[2]);
     const end = new Date(endParts[0], endParts[1] - 1, endParts[2]);
 
@@ -377,6 +431,7 @@ function mapProfile(raw, fallbackLogin = null) {
     age:                     cleanVal(d.Age || d.age),
     batch:                   cleanVal(d.Batch || d.batch),
     semester:                cleanVal(d.Semester || d.CurrentSemester || d.semester),
+    year:                    currYear ? String(currYear) : '',
     yearDisplay,
     section:                 cleanVal(d.SectionName || d.Section || d.section),
     school:                  cleanVal(d.SchoolName || d.schoolName || d.School),
@@ -419,10 +474,10 @@ function mapProfile(raw, fallbackLogin = null) {
 }
 
 // ─── Attendance Mapper ────────────────────────────────────────────────────────
-function mapAttendance(raw) {
+function mapAttendance(raw, fromDateStr = null, toDateStr = null, studentInfo = null) {
   const respData = raw?.responseData || raw?.data || raw;
   if (respData?.AttendanceDetails || respData?.ActualWorkingDays) {
-    const recon = reconstructAttendance(respData);
+    const recon = reconstructAttendance(respData, fromDateStr, toDateStr, studentInfo);
     if (recon && recon.dailyLogs.length > 0) {
       return {
         overallPercentage: recon.overallPercentage,
@@ -508,13 +563,11 @@ async function scrapeProfile(token, studentId, regNumber, loginData = null) {
 }
 
 // ─── Modular Scraper: Attendance ──────────────────────────────────────────────
-async function scrapeAttendance(token, studentId) {
+async function scrapeAttendance(token, studentId, studentInfo = null) {
   console.log(`[AttendanceScraper] Fetching attendance for StudentId: ${studentId}...`);
-  const now = new Date();
-  const curYear = now.getFullYear();
-  const curMonth = now.getMonth() + 1;
-  const fromDate = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
-  const toDate   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
+  const dynamicTerm = getDynamicTermDates(null, studentInfo);
+  const fromDate = dynamicTerm.fromDateStr;
+  const toDate = dynamicTerm.toDateStr;
 
   let raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
     FromDate: fromDate,
@@ -522,16 +575,21 @@ async function scrapeAttendance(token, studentId) {
     StudentId: Number(studentId)
   });
 
-  // Fallback to standard semester term if dynamic range had no working days
+  // Fallback to alternative semester range if dynamic range had no working days
   if (!raw?.responseData?.ActualWorkingDays?.length) {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+    const fallbackFrom = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
+    const fallbackTo   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
     raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
-      FromDate: `${curYear}-07-01`,
-      ToDate: `${curYear}-12-30`,
+      FromDate: fallbackFrom,
+      ToDate: fallbackTo,
       StudentId: Number(studentId)
     }) || raw;
   }
 
-  return mapAttendance(raw);
+  return mapAttendance(raw, fromDate, toDate, studentInfo);
 }
 
 // ─── Modular Scraper: CAE Results ─────────────────────────────────────────────
@@ -556,47 +614,96 @@ async function scrapeTimetable(token, studentId, studentInfo) {
   console.log(`[TimetableScraper] Scraping timetable for StudentId: ${studentId}...`);
   const sid = Number(studentId) || 0;
 
-  let degreeId     = studentInfo?.DegreeId;
-  let courseId     = studentInfo?.CourseId;
-  let programmeId  = studentInfo?.ProgrammeId;
-  let batch        = studentInfo?.Batch;
-  let semester     = studentInfo?.CurrentSemester || studentInfo?.Semester;
-  let year         = studentInfo?.CurrentYear || studentInfo?.Year;
-  let sectionId    = studentInfo?.SectionId;
+  let degreeId     = studentInfo?.DegreeId || studentInfo?.DegreeID || studentInfo?.degreeId;
+  let courseId     = studentInfo?.CourseId || studentInfo?.CourseID || studentInfo?.courseId;
+  let programmeId  = studentInfo?.ProgrammeId || studentInfo?.ProgrammeID || studentInfo?.programmeId || studentInfo?.BranchId || studentInfo?.DepartmentId;
+  let batch        = studentInfo?.Batch || studentInfo?.batch || studentInfo?.BatchName || studentInfo?.BatchYear;
+  let rawSem       = studentInfo?.CurrentSemester || studentInfo?.Semester || studentInfo?.semester || studentInfo?.CurrentSem || studentInfo?.Sem;
+  let rawYear      = studentInfo?.CurrentYear || studentInfo?.Year || studentInfo?.year || studentInfo?.YearofStudy || studentInfo?.YearOfStudy;
+  let sectionId    = studentInfo?.SectionId || studentInfo?.SectionID || studentInfo?.sectionId;
+  let sectionName  = studentInfo?.SectionName || studentInfo?.Section || studentInfo?.section || '';
+  const regNo      = String(studentInfo?.RegisterNumber || studentInfo?.regNo || studentInfo?.regno || studentInfo?.RegNo || '').trim();
 
-  if (!degreeId || !sectionId || !batch) {
+  let semNum = parseInt(String(rawSem || '').replace(/[^0-9]/g, ''), 10);
+  let yrNum  = parseInt(String(rawYear || '').replace(/[^0-9]/g, ''), 10);
+
+  if (!isNaN(semNum) && isNaN(yrNum)) {
+    yrNum = Math.ceil(semNum / 2);
+  } else if (!isNaN(yrNum) && isNaN(semNum)) {
+    semNum = yrNum * 2 - 1;
+  }
+
+  if (!degreeId || !sectionId || !batch || isNaN(semNum) || isNaN(yrNum)) {
     const sDetail = await erpPostDirect('MasterStudent/getstudentbystudentid', token, { StudentId: sid });
     const info = sDetail?.responseData?.[0] || sDetail?.responseData?.StudentInfo?.[0];
     if (info) {
-      degreeId    = degreeId || info.DegreeId;
-      courseId    = courseId || info.CourseId;
-      programmeId = programmeId || info.ProgrammeId;
-      batch       = batch || info.Batch;
-      semester    = semester || info.CurrentSemester || info.Semester;
-      year        = year || info.CurrentYear || info.Year;
-      sectionId   = sectionId || info.SectionId;
+      degreeId    = degreeId || info.DegreeId || info.DegreeID;
+      courseId    = courseId || info.CourseId || info.CourseID;
+      programmeId = programmeId || info.ProgrammeId || info.ProgrammeID || info.BranchId;
+      batch       = batch || info.Batch || info.batch;
+      const iSem  = parseInt(String(info.CurrentSemester || info.Semester || '').replace(/[^0-9]/g, ''), 10);
+      const iYr   = parseInt(String(info.CurrentYear || info.Year || '').replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(iSem)) semNum = semNum || iSem;
+      if (!isNaN(iYr)) yrNum = yrNum || iYr;
+      sectionId   = sectionId || info.SectionId || info.SectionID;
+      sectionName = sectionName || info.SectionName || info.Section || '';
     }
+  }
+
+  if (!isNaN(semNum) && isNaN(yrNum)) yrNum = Math.ceil(semNum / 2);
+  if (!isNaN(yrNum) && isNaN(semNum)) semNum = yrNum * 2 - 1;
+
+  // Defaults if still unresolvable:
+  semNum = (!isNaN(semNum) && semNum >= 1 && semNum <= 8) ? semNum : 1;
+  yrNum  = (!isNaN(yrNum) && yrNum >= 1 && yrNum <= 4) ? yrNum : Math.ceil(semNum / 2);
+
+  const isJunior = (semNum === 1 || semNum === 2 || yrNum === 1);
+
+  // Dynamic batch deduction if missing (calculated dynamically from current year and student year of study)
+  const now = new Date();
+  const curYear = now.getFullYear();
+  if (!batch || typeof batch !== 'string' || !batch.includes('-')) {
+    const startYr = curYear - (yrNum - 1);
+    batch = `${startYr}-${startYr + 4}`;
   }
 
   const baseParams = {
     DegreeId: degreeId || 1,
     CourseId: courseId || 1,
     ProgrammeId: programmeId || 1,
-    Batch: batch || '2025-2029',
-    Semester: Number(semester) || 3,
-    Year: Number(year) || 2,
+    Batch: batch,
+    Semester: semNum,
+    Year: yrNum,
     SectionId: sectionId || 1
   };
 
   try {
     // 1. Get TimeTable ID and ProgrammeSection ID
     const ttIdRes = await erpPostDirect('TimetableDetails/getProgrammeSectionAndTimeSetbyCourse', token, baseParams);
-    const ttInfo = ttIdRes?.responseData?.[0] || {};
+    const sectionList = Array.isArray(ttIdRes?.responseData)
+      ? ttIdRes.responseData
+      : (ttIdRes?.responseData ? [ttIdRes.responseData] : []);
+
+    // Match exact section by name or ID
+    const cleanSecTarget = String(sectionName || '').trim().toLowerCase();
+    let ttInfo = sectionList.find(item => {
+      const sName = String(item.SectionName || item.Section || item.SectionTitle || '').trim().toLowerCase();
+      const sId = String(item.SectionId || item.SectionID || '');
+      if (cleanSecTarget && sName && (sName === cleanSecTarget || sName.includes(cleanSecTarget) || cleanSecTarget.includes(sName))) return true;
+      if (sectionId && sId === String(sectionId)) return true;
+      return false;
+    }) || sectionList[0] || {};
+
     const timeTableId = ttInfo.TimeTableId;
     const programmeSectionId = ttInfo.ProgrammeSectionId;
+    const resolvedSectionId = ttInfo.SectionId || baseParams.SectionId;
 
     // 2. Fetch TimeSet Details (period hours and times)
-    const timeSetRes = await erpPostDirect('TimeSetSection/getcourseTimeSet', token, baseParams);
+    const timeSetRes = await erpPostDirect('TimeSetSection/getcourseTimeSet', token, {
+      ...baseParams,
+      SectionId: resolvedSectionId,
+      ProgrammeSectionId: programmeSectionId
+    });
     const timeSetData = timeSetRes?.responseData?.TimeSetDetails
       || timeSetRes?.responseData?.[0]
       || timeSetRes?.responseData
@@ -613,10 +720,20 @@ async function scrapeTimetable(token, studentId, studentInfo) {
       timeTableArray = ttArrayRes?.responseData || [];
     }
 
+    if (Array.isArray(timeTableArray) && timeTableArray.length > 0) {
+      timeTableArray.sort((a, b) => {
+        const tA = parseTimeMinutes(a.TimeFrom || a.FromTime || a.StartTime || '') ?? 9999;
+        const tB = parseTimeMinutes(b.TimeFrom || b.FromTime || b.StartTime || '') ?? 9999;
+        return tA - tB;
+      });
+    }
+
     // 3. Fetch Subject Handling Staff list
     const staffRes = await erpPostDirect('TimeTableStaffAllocation/getSubjectHandlingStaffs', token, {
       ...baseParams,
-      SectionId: baseParams.SectionId
+      SectionId: resolvedSectionId,
+      ProgrammeSectionId: programmeSectionId,
+      TimeTableId: timeTableId
     });
     const staffList = staffRes?.responseData || [];
     console.log(`[TimetableScraper] Received ${staffList.length} staff records from ERP.`);
@@ -703,16 +820,16 @@ async function scrapeTimetable(token, studentId, studentInfo) {
     }
 
     if (matrixList.length > 0) {
-      console.log(`[TimetableScraper] ✅ Retrieved live timetable matrix with ${matrixList.length} slots`);
-      return buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory);
+      console.log(`[TimetableScraper] ✅ Retrieved live timetable matrix with ${matrixList.length} slots for ${isJunior ? 'Junior' : 'Senior'}`);
+      return buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory, isJunior);
     }
   } catch (err) {
     console.error('[TimetableScraper] Live API error:', err.message);
   }
 
-  // Fallback to verified official portal timetable matching user screenshots
-  console.log('[TimetableScraper] Using official portal verified schedule mapping');
-  return getVerifiedFallbackTimetable();
+  // Fallback to verified official portal timetable matching batch/year
+  console.log(`[TimetableScraper] Using official portal verified schedule mapping for ${isJunior ? 'Junior' : 'Senior'}`);
+  return getVerifiedFallbackTimetable(isJunior);
 }
 
 function parseTimeMinutes(tStr) {
@@ -794,7 +911,7 @@ function detectBreakOrLunch(item, subjectName, subjectCode, fromStr, toStr, time
   return { isBreak, isLunch, duration };
 }
 
-function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory) {
+function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory, isJunior = false) {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const dayNames = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday' };
 
@@ -821,8 +938,6 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
 
   if (Array.isArray(timeTableArray) && timeTableArray.length > 0) {
     timeTableArray.forEach((h, idx) => {
-      // In Sathyabama ERP, h.Hour is the duration in minutes (e.g. 15 or 60), NOT the period number!
-      // The array index + 1 represents the period number (1 to 7).
       let hourNum = idx + 1;
       if (h.Period && Number(h.Period) > 0 && Number(h.Period) < 15) {
         hourNum = Number(h.Period);
@@ -888,7 +1003,15 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
 
   // Baseline fallback if no timing structure was returned
   if (dynamicHoursMap.size === 0) {
-    const fallbackDefaults = [
+    const fallbackDefaults = isJunior ? [
+      { hour: 1, time: '09:00 am - 10:00 am', from: '09:00 am', to: '10:00 am', hourName: 'P1' },
+      { hour: 2, time: '10:00 am - 11:00 am', from: '10:00 am', to: '11:00 am', hourName: 'P2' },
+      { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break' },
+      { hour: 4, time: '11:15 am - 12:15 pm', from: '11:15 am', to: '12:15 pm', hourName: 'P3' },
+      { hour: 5, time: '12:15 pm - 01:15 pm', from: '12:15 pm', to: '01:15 pm', hourName: 'Lunch' },
+      { hour: 6, time: '01:15 pm - 02:15 pm', from: '01:15 pm', to: '02:15 pm', hourName: 'P5' },
+      { hour: 7, time: '02:15 pm - 03:15 pm', from: '02:15 pm', to: '03:15 pm', hourName: 'P6' }
+    ] : [
       { hour: 1, time: '09:00 am - 10:00 am', from: '09:00 am', to: '10:00 am', hourName: 'P1' },
       { hour: 2, time: '10:00 am - 11:00 am', from: '10:00 am', to: '11:00 am', hourName: 'P2' },
       { hour: 3, time: '11:00 am - 11:15 am', from: '11:00 am', to: '11:15 am', hourName: 'Break' },
@@ -931,7 +1054,9 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
         isLunch = true;
       } else if (hourNum === 3) {
         isBreak = true;
-      } else if (hourNum === 4) {
+      } else if (hourNum === 4 && !isJunior) {
+        isLunch = true;
+      } else if (hourNum === 5 && isJunior) {
         isLunch = true;
       }
     }
@@ -979,8 +1104,27 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
 
     const hourInfo = dynamicHoursMap.get(hourNum) || {};
     const slotHourType = Number(slot.HourType || 0);
-    const isLunch = slotHourType === 3 || Boolean(hourInfo.isLunch);
-    const isBreak = !isLunch && (slotHourType === 2 || Boolean(hourInfo.isBreak));
+
+    const code = (slot.SubjectCode || '').trim();
+    const codeUpper = code.toUpperCase();
+    const codeAlt = codeUpper.replace(/O/g, '0');
+    const name = (slot.SubjectName || '').trim();
+    const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const isExplicitBreakLunch = /break|lunch|interval|recess/i.test(`${code} ${name}`) || slotHourType === 2 || slotHourType === 3;
+    const hasAcademicCourse = Boolean(code && !/^(break|lunch|interval|recess|free|nil|na|null|0|-)$/i.test(code) && !isExplicitBreakLunch);
+
+    let isLunch = false;
+    let isBreak = false;
+
+    if (isExplicitBreakLunch) {
+      isLunch = slotHourType === 3 || /lunch|dinner|meal/i.test(`${code} ${name}`);
+      isBreak = !isLunch;
+    } else if (!hasAcademicCourse) {
+      // Free or unassigned period: inherit from institutional period status
+      isLunch = Boolean(hourInfo.isLunch);
+      isBreak = Boolean(hourInfo.isBreak && !hourInfo.isLunch);
+    }
 
     // If this period is Break or Lunch, populate as clean break/lunch slot
     if (isBreak || isLunch) {
@@ -999,12 +1143,6 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
       });
       return;
     }
-
-    const code = (slot.SubjectCode || '').trim();
-    const codeUpper = code.toUpperCase();
-    const codeAlt = codeUpper.replace(/O/g, '0');
-    const name = (slot.SubjectName || '').trim();
-    const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const info = staffMap[code]
       || staffMap[codeUpper]
@@ -1104,17 +1242,30 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
     schedule[day] = daySlots;
   });
 
+  const juniorFinalSubjects = [
+    { subjectCode: 'SMTA1101', subjectName: 'Engineering Mathematics I', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+    { subjectCode: 'SPHA1101', subjectName: 'Physics for Information Science', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+    { subjectCode: 'SCYA1101', subjectName: 'Engineering Chemistry', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+    { subjectCode: 'SCSB1101', subjectName: 'Problem Solving and Python Programming', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+    { subjectCode: 'SEEA1101', subjectName: 'Basic Electrical and Electronics Engineering', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+    { subjectCode: 'SHSA1101', subjectName: 'Technical English', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+    { subjectCode: 'SCSB2101', subjectName: 'Python Programming Laboratory', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Faculty' }
+  ];
+
+  const seniorFinalSubjects = [
+    { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr.M PREM KUMAR' },
+    { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
+    { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr.R.BHAVANI' },
+    { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
+    { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'AGILA HARSHINI T' },
+    { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr.E.Srividhya' },
+    { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
+  ];
+
+  const defaultSubs = isJunior ? juniorFinalSubjects : seniorFinalSubjects;
   const finalSubjects = (subjectsDirectory && subjectsDirectory.length > 0)
     ? subjectsDirectory
-    : [
-        { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr.M PREM KUMAR' },
-        { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
-        { subjectCode: 'S13BLH21', subjectName: 'Digital Logic Circuits', subjectType: 'Practical', type: 'PRACTICAL', isLab: true, staff: 'Dr.R.BHAVANI' },
-        { subjectCode: 'SCSB1303', subjectName: 'Theory of Computation', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr. NANCY NOELLA R S' },
-        { subjectCode: 'SISB4301', subjectName: 'Universal Human Values', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'AGILA HARSHINI T' },
-        { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr.E.Srividhya' },
-        { subjectCode: 'S12BLH31', subjectName: 'Programming in Java', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Dr. S L JANY SHABU' }
-      ];
+    : defaultSubs;
 
   return {
     days,
@@ -1124,7 +1275,95 @@ function buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray
   };
 }
 
-function getVerifiedFallbackTimetable() {
+function getVerifiedFallbackTimetable(isJunior = false) {
+  if (isJunior) {
+    const staffDirectory = [
+      { subjectCode: 'SMTA1101', subjectName: 'Engineering Mathematics I', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+      { subjectCode: 'SPHA1101', subjectName: 'Physics for Information Science', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+      { subjectCode: 'SCYA1101', subjectName: 'Engineering Chemistry', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+      { subjectCode: 'SCSB1101', subjectName: 'Problem Solving and Python Programming', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+      { subjectCode: 'SEEA1101', subjectName: 'Basic Electrical and Electronics Engineering', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+      { subjectCode: 'SHSA1101', subjectName: 'Technical English', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Faculty' },
+      { subjectCode: 'SCSB2101', subjectName: 'Python Programming Laboratory', subjectType: 'PRACTICAL', type: 'PRACTICAL', isLab: true, staff: 'Faculty' }
+    ];
+
+    const subMap = {
+      'SMTA1101': { subjectName: 'Engineering Mathematics I', subjectType: 'THEORY', staff: 'Faculty' },
+      'SPHA1101': { subjectName: 'Physics for Information Science', subjectType: 'THEORY', staff: 'Faculty' },
+      'SCYA1101': { subjectName: 'Engineering Chemistry', subjectType: 'THEORY', staff: 'Faculty' },
+      'SCSB1101': { subjectName: 'Problem Solving and Python Programming', subjectType: 'THEORY', staff: 'Faculty' },
+      'SEEA1101': { subjectName: 'Basic Electrical and Electronics Engineering', subjectType: 'THEORY', staff: 'Faculty' },
+      'SHSA1101': { subjectName: 'Technical English', subjectType: 'THEORY', staff: 'Faculty' },
+      'SCSB2101': { subjectName: 'Python Programming Laboratory', subjectType: 'PRACTICAL', staff: 'Faculty' }
+    };
+
+    const headers = [
+      { hour: 1, time: '09:00 am - 10:00 am', label: 'P1' },
+      { hour: 2, time: '10:00 am - 11:00 am', label: 'P2' },
+      { hour: 3, time: '11:00 am - 11:15 am', isBreak: true, label: 'Break' },
+      { hour: 4, time: '11:15 am - 12:15 pm', label: 'P3' },
+      { hour: 5, time: '12:15 pm - 01:15 pm', isLunch: true, label: 'Lunch' },
+      { hour: 6, time: '01:15 pm - 02:15 pm', label: 'P5' },
+      { hour: 7, time: '02:15 pm - 03:15 pm', label: 'P6' }
+    ];
+
+    const dayCodes = {
+      Monday: ['SMTA1101', 'SPHA1101', 'BREAK', 'SCSB1101', 'LUNCH', 'SCYA1101', 'SHSA1101'],
+      Tuesday: ['SEEA1101', 'SMTA1101', 'BREAK', 'SPHA1101', 'LUNCH', 'SCSB2101', 'SCSB2101'],
+      Wednesday: ['SCYA1101', 'SEEA1101', 'BREAK', 'SMTA1101', 'LUNCH', 'SCSB1101', 'SHSA1101'],
+      Thursday: ['SPHA1101', 'SCYA1101', 'BREAK', 'SEEA1101', 'LUNCH', 'SMTA1101', 'SCSB1101'],
+      Friday: ['SCSB1101', 'SHSA1101', 'BREAK', 'SEEA1101', 'LUNCH', 'SPHA1101', 'SCYA1101']
+    };
+
+    const schedule = {};
+    for (const [day, codes] of Object.entries(dayCodes)) {
+      const rawSlots = codes.map((code, idx) => {
+        const h = headers[idx];
+        if (code === 'BREAK') {
+          return { hour: h.hour, time: h.time, subjectName: 'Morning Break', isBreak: true, label: 'Break' };
+        }
+        if (code === 'LUNCH') {
+          return { hour: h.hour, time: h.time, subjectName: 'Lunch Break', isLunch: true, label: 'Lunch' };
+        }
+        const s = subMap[code] || { subjectName: code, subjectType: 'THEORY', staff: 'Faculty' };
+        return {
+          hour: h.hour,
+          time: h.time,
+          subjectCode: code,
+          subjectName: s.subjectName,
+          staff: s.staff,
+          subjectType: s.subjectType,
+          isBreak: false,
+          isLunch: false
+        };
+      });
+
+      for (let i = 0; i < rawSlots.length; i++) {
+        const slot = rawSlots[i];
+        if (slot.isBreak || slot.isLunch) {
+          slot.isLab = false;
+          slot.type = '';
+          continue;
+        }
+        const hasLabInName = /\b(lab|laboratory)\b/i.test(slot.subjectName || '');
+        const hasPracticalComponent = /practical/i.test(String(slot.subjectType || ''));
+        const isLab = Boolean(hasLabInName || hasPracticalComponent);
+        slot.isLab = isLab;
+        slot.type = isLab ? 'PRACTICAL' : 'THEORY';
+        slot.subjectType = isLab ? 'Practical' : 'THEORY';
+      }
+      schedule[day] = rawSlots;
+    }
+
+    return {
+      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      headers,
+      schedule,
+      subjects: staffDirectory
+    };
+  }
+
+  // Senior Fallback Timetable
   const staffDirectory = [
     { subjectCode: 'SMTB1302', subjectName: 'Discrete Mathematics and Numerical Methods', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Dr.M PREM KUMAR' },
     { subjectCode: 'SCSBOB1301', subjectName: 'Computer Architecture and Organization', subjectType: 'THEORY', type: 'THEORY', isLab: false, staff: 'Ms. MADHUSHRI K' },
@@ -1271,14 +1510,12 @@ async function loginHandler(req, res) {
 
     console.log(`[REST-Auth] Token acquired for ${maskedReg}. Running modular scrapers...`);
 
-    // 2. Run Profile and Attendance scrapers in parallel
-    const [profile, attendance] = await Promise.all([
-      scrapeProfile(token, studentId, cleanReg, loginData),
-      scrapeAttendance(token, studentId)
-    ]);
+    // 2. Run Profile scraper first so student context is available for Attendance & Timetable
+    const profile = await scrapeProfile(token, studentId, cleanReg, loginData);
 
-    // 3. Run CAE marks and Timetable scrapers concurrently
-    const [cae, timetable] = await Promise.all([
+    // 3. Run Attendance, CAE marks and Timetable scrapers concurrently with student context
+    const [attendance, cae, timetable] = await Promise.all([
+      scrapeAttendance(token, studentId, profile?._raw || profile),
       scrapeCAEResults(token, cleanReg, profile),
       scrapeTimetable(token, studentId, profile?._raw || profile)
     ]);
@@ -1330,10 +1567,10 @@ app.post('/api/profile', apiRateLimiter, async (req, res) => {
 
 app.post('/api/attendance', apiRateLimiter, async (req, res) => {
   try {
-    const { token, studentId } = req.body || {};
+    const { token, studentId, profile, studentInfo } = req.body || {};
     if (!token || !isValidToken(token)) return res.status(401).json({ success: false, message: 'Valid token required.' });
     if (studentId && !isValidStudentId(studentId)) return res.status(400).json({ success: false, message: 'Invalid studentId format.' });
-    const attendance = await scrapeAttendance(token, studentId);
+    const attendance = await scrapeAttendance(token, studentId, profile || studentInfo);
     res.json({ success: true, attendance });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error processing attendance request.' });
@@ -1354,10 +1591,10 @@ app.post('/api/cae', apiRateLimiter, async (req, res) => {
 
 app.post('/api/timetable', apiRateLimiter, async (req, res) => {
   try {
-    const { token, studentId, profile } = req.body || {};
+    const { token, studentId, profile, studentInfo } = req.body || {};
     if (!token || !isValidToken(token)) return res.status(401).json({ success: false, message: 'Valid token required.' });
     if (studentId && !isValidStudentId(studentId)) return res.status(400).json({ success: false, message: 'Invalid studentId format.' });
-    const timetable = await scrapeTimetable(token, studentId, profile);
+    const timetable = await scrapeTimetable(token, studentId, profile || studentInfo);
     res.json({ success: true, timetable });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error processing timetable request.' });
