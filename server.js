@@ -635,49 +635,65 @@ async function scrapeProfile(token, studentId, regNumber, loginData = null) {
 
 // ─── Modular Scraper: Attendance ──────────────────────────────────────────────
 async function scrapeAttendance(token, studentId, studentInfo = null) {
-  console.log(`[AttendanceScraper] Fetching attendance for StudentId: ${studentId}...`);
-  const dynamicTerm = getDynamicTermDates(null, studentInfo);
-  const fromDate = dynamicTerm.fromDateStr;
-  const toDate = dynamicTerm.toDateStr;
+  try {
+    console.log(`[AttendanceScraper] Fetching attendance for StudentId: ${studentId}...`);
+    const dynamicTerm = getDynamicTermDates(null, studentInfo);
+    const fromDate = dynamicTerm.fromDateStr;
+    const toDate = dynamicTerm.toDateStr;
 
-  let raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
-    FromDate: fromDate,
-    ToDate: toDate,
-    StudentId: Number(studentId)
-  });
-
-  // Fallback to alternative semester range if dynamic range had no working days
-  if (!raw?.responseData?.ActualWorkingDays?.length) {
-    const now = new Date();
-    const curYear = now.getFullYear();
-    const curMonth = now.getMonth() + 1;
-    const fallbackFrom = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
-    const fallbackTo   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
-    raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
-      FromDate: fallbackFrom,
-      ToDate: fallbackTo,
+    let raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
+      FromDate: fromDate,
+      ToDate: toDate,
       StudentId: Number(studentId)
-    }) || raw;
-  }
+    });
 
-  return mapAttendance(raw, fromDate, toDate, studentInfo);
+    // Fallback to alternative semester range if dynamic range had no working days
+    if (!raw?.responseData?.ActualWorkingDays?.length) {
+      const now = new Date();
+      const curYear = now.getFullYear();
+      const curMonth = now.getMonth() + 1;
+      const fallbackFrom = curMonth >= 6 ? `${curYear}-06-01` : `${curYear}-01-01`;
+      const fallbackTo   = curMonth >= 6 ? `${curYear}-12-31` : `${curYear}-06-30`;
+      raw = await erpPostDirect('StudentDailyAttendance/StudentWiseAttendance', token, {
+        FromDate: fallbackFrom,
+        ToDate: fallbackTo,
+        StudentId: Number(studentId)
+      }) || raw;
+    }
+
+    return mapAttendance(raw, fromDate, toDate, studentInfo);
+  } catch (err) {
+    console.error('[AttendanceScraper] Error:', err.message);
+    return {
+      overallPercentage: 0,
+      totalDays: 0,
+      totalPresent: 0,
+      totalAbsent: 0,
+      dailyLogs: []
+    };
+  }
 }
 
 // ─── Modular Scraper: CAE Results ─────────────────────────────────────────────
 async function scrapeCAEResults(token, regNumber, profile) {
-  console.log(`[CAEScraper] Fetching CAE marks for ${regNumber}...`);
-  const now = new Date();
-  const curYear = now.getFullYear();
+  try {
+    console.log(`[CAEScraper] Fetching CAE marks for ${regNumber}...`);
+    const now = new Date();
+    const curYear = now.getFullYear();
 
-  const caeBody = {
-    RegisterNumber: regNumber,
-    AcademicMonthId: profile?._raw?.CurrentAcademicMonth || profile?._raw?.AcademicMonthId || 2,
-    AcademicYear: profile?._raw?.CurrentAcademicYear || profile?._raw?.AcademicYear || `${curYear}-${curYear + 1}`,
-    Semester: profile?._raw?.CurrentSemester || profile?.semester || 3
-  };
+    const caeBody = {
+      RegisterNumber: regNumber,
+      AcademicMonthId: profile?._raw?.CurrentAcademicMonth || profile?._raw?.AcademicMonthId || 2,
+      AcademicYear: profile?._raw?.CurrentAcademicYear || profile?._raw?.AcademicYear || `${curYear}-${curYear + 1}`,
+      Semester: profile?._raw?.CurrentSemester || profile?.semester || 3
+    };
 
-  const raw = await erpPostDirect('CAEResult/studentCAEResult', token, caeBody);
-  return mapCAE(raw);
+    const raw = await erpPostDirect('CAEResult/studentCAEResult', token, caeBody);
+    return mapCAE(raw);
+  } catch (err) {
+    console.error('[CAEScraper] Error:', err.message);
+    return { cgpa: '', currentGpa: '', cae1: [], cae2: [], arrearDetails: { totalArrears: 0, clearedArrears: 0, history: [] } };
+  }
 }
 
 // ─── Modular Scraper: Class Timetable ─────────────────────────────────────────
@@ -1671,7 +1687,7 @@ async function loginHandler(req, res) {
 
     if (!loginData) {
       console.log(`[REST-Auth] ERP server unreachable or timed out for ${maskedReg}`);
-      return res.status(503).json({
+      return res.status(401).json({
         success: false,
         message: 'Official ERP server is currently unreachable or slow. Please try again in a moment.'
       });
@@ -1713,15 +1729,16 @@ async function loginHandler(req, res) {
     const elapsed = Date.now() - startTime;
     console.log(`[REST-Auth] ✅ All data scraped for ${maskedReg} in ${elapsed}ms.`);
 
+    const safeProfile = profile || {};
     return res.json({
       success: true,
       token,
       student: {
-        name: profile.name,
-        regNo: profile.regNo,
-        department: profile.department,
-        semester: profile.semester,
-        section: profile.section
+        name: safeProfile.name || 'Student',
+        regNo: safeProfile.regNo || cleanReg,
+        department: safeProfile.department || '—',
+        semester: safeProfile.semester || '—',
+        section: safeProfile.section || '—'
       },
       data: {
         studentDetails: profile,
@@ -1732,8 +1749,8 @@ async function loginHandler(req, res) {
     });
 
   } catch (err) {
-    console.error('[REST-Auth Error]', err.name || 'Error processing request');
-    return res.status(500).json({ success: false, message: 'Internal server error. Please try again later.' });
+    console.error('[REST-Auth Error]', err?.stack || err?.message || err);
+    return res.status(400).json({ success: false, message: 'Unable to process request. Please try again.' });
   }
 }
 

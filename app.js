@@ -1214,20 +1214,32 @@ function renderSubjectAttendanceView(parsedLogs, enrichedTt) {
 
       <!-- Footer: Safe Bunks or Recovery Target -->
       <div class="pt-2 border-t border-white/5 text-[11px]">
-        ${!isPass
-          ? `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
-               <span class="material-symbols-outlined text-sm text-rose-400">notification_important</span>
-               <span>Must attend next <strong>${s.neededToRecover}</strong> consecutive ${isLabCourse ? 'hour(s)' : 'class(es)'}</span>
+        ${s.conducted === 0
+          ? `<div class="text-cyan-300/80 flex items-center gap-1.5 font-medium">
+               <span class="material-symbols-outlined text-sm text-cyan-400">schedule</span>
+               <span>No ${isLabCourse ? 'lab hours' : 'classes'} conducted yet</span>
              </div>`
-          : (s.safeBunks > 0
-              ? `<div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
-                   <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
-                   <span>Safe to miss <strong>${s.safeBunks}</strong> ${isLabCourse ? 'more hour(s)' : 'more class(es)'}</span>
+          : (!isPass
+              ? `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
+                   <span class="material-symbols-outlined text-sm text-rose-400">notification_important</span>
+                   <span>Must attend next <strong>${s.neededToRecover}</strong> consecutive ${isLabCourse ? 'hour(s)' : 'class(es)'}</span>
                  </div>`
-              : `<div class="text-rose-300 flex items-center gap-1.5 font-medium">
-                   <span class="material-symbols-outlined text-sm text-rose-400">error</span>
-                   <span>Cannot miss anymore ${isLabCourse ? 'hour(s)' : 'class(es)'}</span>
-                 </div>`
+              : (s.safeBunks > 0
+                  ? `<div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
+                       <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
+                       <span>Safe to miss <strong>${s.safeBunks}</strong> ${isLabCourse ? 'more hour(s)' : 'more class(es)'}</span>
+                     </div>`
+                  : (s.missed === 0 || s.percentage >= 100
+                      ? `<div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
+                           <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
+                           <span>100% Attendance • Perfect standing</span>
+                         </div>`
+                      : `<div class="text-amber-300 flex items-center gap-1.5 font-medium">
+                           <span class="material-symbols-outlined text-sm text-amber-400">warning</span>
+                           <span>On 80% threshold — attend next ${isLabCourse ? 'hour' : 'class'} to maintain margin</span>
+                         </div>`
+                    )
+                )
             )
         }
       </div>
