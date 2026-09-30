@@ -253,6 +253,7 @@ function sanitizeForLog(str) {
 }
 
 const ERP_ORIGIN = 'https://erp.sathyabama.ac.in';
+const ERP_API_KEY = 'ggd252agagagag362';
 
 // ─── In-Memory TTL Cache (reduces redundant ERP calls) ───────────────────────
 const dataCache = new Map();
@@ -296,7 +297,8 @@ async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) 
         'User-Agent': USER_AGENTS[attempt % USER_AGENTS.length],
         'Accept': 'application/json, text/plain, */*',
         'Origin': ERP_ORIGIN,
-        'Referer': `${ERP_ORIGIN}/student/view`
+        'Referer': `${ERP_ORIGIN}/student/view`,
+        'ERP-API-KEY': ERP_API_KEY
       };
       if (token) {
         if (!isValidToken(token)) {
@@ -2006,7 +2008,8 @@ async function probeErpHealth() {
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
-        'Origin': ERP_ORIGIN
+        'Origin': ERP_ORIGIN,
+        'ERP-API-KEY': ERP_API_KEY
       },
       body: JSON.stringify({ RegisterNumber: 'healthcheck', Password: 'probe' }),
       signal: AbortSignal.timeout(8000)

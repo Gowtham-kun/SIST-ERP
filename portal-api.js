@@ -9,6 +9,7 @@ const REMEMBERED_REG_KEY = 'sathy_remembered_regno';
 const LEGACY_STORAGE_KEY = 'sathy_credentials_v2';
 const TOKEN_KEY          = 'sathy_access_token';
 const ERP_BASE_URL       = 'https://erp.sathyabama.ac.in/erp/api/v1.0';
+const ERP_API_KEY        = 'ggd252agagagag362';
 
 const PortalAPI = {
 
@@ -62,7 +63,8 @@ const PortalAPI = {
   async fetchErpDirect(endpoint, token = null, body = {}, timeoutMs = 12000) {
     const headers = {
       'Content-Type': 'application/json',
-      'Accept': 'application/json, text/plain, */*'
+      'Accept': 'application/json, text/plain, */*',
+      'ERP-API-KEY': ERP_API_KEY
     };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
