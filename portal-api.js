@@ -75,11 +75,23 @@ const PortalAPI = {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs)
     });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`ERP HTTP ${res.status}: ${errText}`);
+
+    const data = await res.json().catch(() => null);
+
+    // If ERP returned 401 Unauthorized or explicit failure status
+    if (res.status === 401 || (data && data.status === false)) {
+      const rawMsg = data?.message;
+      const cleanMsg = (rawMsg === 'Invalid Request' || !rawMsg)
+        ? 'Invalid Register Number or Password. Please check your credentials.'
+        : rawMsg;
+      throw new Error(cleanMsg);
     }
-    return await res.json();
+
+    if (!res.ok) {
+      throw new Error(`ERP returned HTTP ${res.status}. Please try again later.`);
+    }
+
+    return data;
   },
 
   // Helper to dynamically calculate term dates
@@ -232,49 +244,48 @@ const PortalAPI = {
   },
 
   // ── Unified Login (Direct Client-First with Server Proxy Fallback) ─────────
+  // ── Unified Login (Direct Client-First with Server Proxy Fallback) ─────────
   async login(regNumber, password, remember) {
-    const cleanReg = String(regNumber || '').trim();
-    const cleanPass = String(password || '');
+    const cleanReg = String(regNumber || '').trim().toUpperCase();
+    const cleanPass = String(password || '').trim();
 
     if (!cleanReg || !cleanPass) {
       throw new Error('Register Number and Password are required.');
     }
 
     let payload = null;
+    let clientError = null;
 
     // Strategy 1: Direct Client Gateway (Preferred: eliminates server IP block & slow proxy hops)
     try {
       payload = await this.loginDirectClient(cleanReg, cleanPass);
       console.log('✅ Authenticated via Direct Client Gateway');
     } catch (clientErr) {
-      // If error was explicit invalid credentials, throw immediately without fallback
-      const msg = clientErr.message || '';
-      if (msg.includes('Invalid') || msg.includes('Register Number') || msg.includes('Password') || msg.includes('credential')) {
-        throw clientErr;
-      }
+      clientError = clientErr;
+      console.warn('[PortalAPI] Direct client gateway attempt failed:', clientErr.message, '— Attempting server proxy fallback...');
+    }
 
-      console.warn('[PortalAPI] Direct client gateway failed (CORS/network):', clientErr.message, '— Attempting server proxy fallback...');
-
-      // Strategy 2: Server-Side Proxy Fallback
-      let resp;
+    // Strategy 2: Server-Side Proxy Fallback (runs if Direct Gateway failed or was rejected)
+    if (!payload) {
       try {
-        resp = await fetch('/api/login', {
+        const resp = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ regNumber: cleanReg, password: cleanPass })
         });
-      } catch {
-        throw new Error('Cannot connect to portal server. Please check your internet connection.');
-      }
-
-      try {
-        payload = await resp.json();
-      } catch {
-        throw new Error('Unexpected server response format. Please try again.');
-      }
-
-      if (!resp.ok || !payload.success) {
-        throw new Error(payload.message || 'Authentication failed. Please check your credentials.');
+        const serverData = await resp.json().catch(() => null);
+        if (resp.ok && serverData?.success) {
+          payload = serverData;
+          console.log('✅ Authenticated via Server Proxy Fallback');
+        } else {
+          const msg = serverData?.message || clientError?.message || 'Invalid Register Number or Password. Please check your credentials.';
+          throw new Error(msg);
+        }
+      } catch (proxyErr) {
+        if (clientError?.message) {
+          throw clientError;
+        }
+        throw new Error(proxyErr.message || 'Authentication failed. Please check your credentials.');
       }
     }
 

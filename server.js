@@ -332,6 +332,14 @@ async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) 
         continue;
       }
 
+      // If ERP returns 401 with JSON error payload (e.g. {"status":false,"message":"Invalid Request"}), parse and return it
+      if (res.status === 401) {
+        try {
+          const data = await res.json();
+          return data;
+        } catch { /* fallback to error logging below */ }
+      }
+
       if (!res.ok) {
         const errorBody = await res.text().catch(() => '');
         const headersSummary = {};
@@ -1772,8 +1780,11 @@ async function loginHandler(req, res) {
 
     if (loginData.status !== true) {
       recordAccountLoginFailure(cleanReg);
-      const errorMsg = loginData?.message || 'Invalid Register Number or Password.';
-      console.log(`[REST-Auth] Authentication failed for ${maskedReg}`);
+      const rawMsg = loginData?.message;
+      const errorMsg = (rawMsg === 'Invalid Request' || !rawMsg)
+        ? 'Invalid Register Number or Password. Please check your credentials.'
+        : rawMsg;
+      console.log(`[REST-Auth] Authentication failed for ${maskedReg}: ${errorMsg}`);
       return res.status(401).json({ success: false, message: errorMsg });
     }
 
