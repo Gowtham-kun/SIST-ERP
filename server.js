@@ -896,77 +896,6 @@ async function scrapeTimetable(token, studentId, studentInfo) {
     const staffList = staffRes?.responseData || [];
     console.log(`[TimetableScraper] Received ${staffList.length} staff records from ERP.`);
 
-    const VERIFIED_FACULTY_MAP = {
-      'SMTB1302': 'Dr.M PREM KUMAR',
-      'SCSBOB1301': 'Ms. MADHUSHRI K',
-      'SCSB0B1301': 'Ms. MADHUSHRI K',
-      'S13BLH21': 'Dr.R.BHAVANI',
-      'SCSB1303': 'Dr. NANCY NOELLA R S',
-      'SISB4301': 'AGILA HARSHINI T',
-      'S12BLH31': 'Dr.E.Srividhya, Dr. S L JANY SHABU',
-      'DISCRETE MATHEMATICS AND NUMERICAL METHODS': 'Dr.M PREM KUMAR',
-      'COMPUTER ARCHITECTURE AND ORGANIZATION': 'Ms. MADHUSHRI K',
-      'DIGITAL LOGIC CIRCUITS': 'Dr.R.BHAVANI',
-      'THEORY OF COMPUTATION': 'Dr. NANCY NOELLA R S',
-      'UNIVERSAL HUMAN VALUES': 'AGILA HARSHINI T',
-      'PROGRAMMING IN JAVA': 'Dr.E.Srividhya, Dr. S L JANY SHABU'
-    };
-
-    const staffMap = {};
-    const staffByName = {};
-    const subjectsDirectory = [];
-
-    staffList.forEach(s => {
-      const code = (s.SubjectCode || '').trim();
-      const codeUpper = code.toUpperCase();
-      const codeAlt = codeUpper.replace(/O/g, '0');
-      const name = (s.SubjectName || '').trim();
-      const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const staffName = (s.StaffName || s.Staff || s.staffName || s.Staff_Name || s.FacultyName || VERIFIED_FACULTY_MAP[codeUpper] || VERIFIED_FACULTY_MAP[name.toUpperCase()] || '').trim();
-      const rawType = (s.SubjectType || s.subjectType || s.Type || '').trim();
-      const isPractical = /practical/i.test(rawType);
-      const type = isPractical ? 'PRACTICAL' : 'THEORY';
-      const displaySubjectType = rawType || (isPractical ? 'Practical' : 'THEORY');
-
-      if (staffName && staffName !== 'Staff') {
-        subjectsDirectory.push({
-          subjectCode: code,
-          subjectName: name || code,
-          subjectType: displaySubjectType,
-          type: type,
-          isLab: isPractical,
-          staff: staffName
-        });
-      }
-
-      const entry = {
-        subjectCode: code,
-        subjectName: name || code,
-        subjectType: displaySubjectType,
-        type: type,
-        isLab: isPractical,
-        staff: staffName
-      };
-
-      if (code) {
-        if (staffMap[code] && staffName && !staffMap[code].staff.includes(staffName)) {
-          staffMap[code].staff += `, ${staffName}`;
-        } else {
-          staffMap[code] = { ...entry };
-        }
-        staffMap[codeUpper] = staffMap[code];
-        staffMap[codeAlt] = staffMap[code];
-      }
-
-      if (nameKey) {
-        if (staffByName[nameKey] && staffName && !staffByName[nameKey].staff.includes(staffName)) {
-          staffByName[nameKey].staff += `, ${staffName}`;
-        } else {
-          staffByName[nameKey] = { ...entry };
-        }
-      }
-    });
-
     // 4. Fetch the actual timetable matrix
     let matrixList = [];
     if (timeTableId && programmeSectionId) {
@@ -979,7 +908,7 @@ async function scrapeTimetable(token, studentId, studentInfo) {
 
     if (matrixList.length > 0) {
       console.log(`[TimetableScraper] ✅ Retrieved live timetable matrix with ${matrixList.length} slots for ${isJunior ? 'Junior' : 'Senior'}`);
-      return buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory, isJunior);
+      return formatTimetableFromRaw(staffList, matrixList, timeTableArray, isJunior, studentInfo);
     }
   } catch (err) {
     console.error('[TimetableScraper] Live API error:', err.message);
@@ -987,6 +916,93 @@ async function scrapeTimetable(token, studentId, studentInfo) {
 
   // Fallback to verified official portal timetable matching batch/year
   console.log(`[TimetableScraper] Using official portal verified schedule mapping for ${isJunior ? 'Junior' : 'Senior'}`);
+  return getVerifiedFallbackTimetable(isJunior, studentInfo);
+}
+
+const VERIFIED_FACULTY_MAP = {
+  'SMTB1302': 'Dr.M PREM KUMAR',
+  'SCSBOB1301': 'Ms. MADHUSHRI K',
+  'SCSB0B1301': 'Ms. MADHUSHRI K',
+  'S13BLH21': 'Dr.R.BHAVANI',
+  'SCSB1303': 'Dr. NANCY NOELLA R S',
+  'SISB4301': 'AGILA HARSHINI T',
+  'S12BLH31': 'Dr.E.Srividhya, Dr. S L JANY SHABU',
+  'DISCRETE MATHEMATICS AND NUMERICAL METHODS': 'Dr.M PREM KUMAR',
+  'COMPUTER ARCHITECTURE AND ORGANIZATION': 'Ms. MADHUSHRI K',
+  'DIGITAL LOGIC CIRCUITS': 'Dr.R.BHAVANI',
+  'THEORY OF COMPUTATION': 'Dr. NANCY NOELLA R S',
+  'UNIVERSAL HUMAN VALUES': 'AGILA HARSHINI T',
+  'PROGRAMMING IN JAVA': 'Dr.E.Srividhya, Dr. S L JANY SHABU'
+};
+
+function formatTimetableFromRaw(staffList = [], matrixList = [], timeTableArray = [], isJunior = false, studentInfo = null) {
+  if (Array.isArray(timeTableArray) && timeTableArray.length > 0) {
+    timeTableArray.sort((a, b) => {
+      const tA = parseTimeMinutes(a.TimeFrom || a.FromTime || a.StartTime || '') ?? 9999;
+      const tB = parseTimeMinutes(b.TimeFrom || b.FromTime || b.StartTime || '') ?? 9999;
+      return tA - tB;
+    });
+  }
+
+  const staffMap = {};
+  const staffByName = {};
+  const subjectsDirectory = [];
+
+  (staffList || []).forEach(s => {
+    const code = (s.SubjectCode || '').trim();
+    const codeUpper = code.toUpperCase();
+    const codeAlt = codeUpper.replace(/O/g, '0');
+    const name = (s.SubjectName || '').trim();
+    const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const staffName = (s.StaffName || s.Staff || s.staffName || s.Staff_Name || s.FacultyName || VERIFIED_FACULTY_MAP[codeUpper] || VERIFIED_FACULTY_MAP[name.toUpperCase()] || '').trim();
+    const rawType = (s.SubjectType || s.subjectType || s.Type || '').trim();
+    const isPractical = /practical/i.test(rawType);
+    const type = isPractical ? 'PRACTICAL' : 'THEORY';
+    const displaySubjectType = rawType || (isPractical ? 'Practical' : 'THEORY');
+
+    if (staffName && staffName !== 'Staff') {
+      subjectsDirectory.push({
+        subjectCode: code,
+        subjectName: name || code,
+        subjectType: displaySubjectType,
+        type: type,
+        isLab: isPractical,
+        staff: staffName
+      });
+    }
+
+    const entry = {
+      subjectCode: code,
+      subjectName: name || code,
+      subjectType: displaySubjectType,
+      type: type,
+      isLab: isPractical,
+      staff: staffName
+    };
+
+    if (code) {
+      if (staffMap[code] && staffName && !staffMap[code].staff.includes(staffName)) {
+        staffMap[code].staff += `, ${staffName}`;
+      } else {
+        staffMap[code] = { ...entry };
+      }
+      staffMap[codeUpper] = staffMap[code];
+      staffMap[codeAlt] = staffMap[code];
+    }
+
+    if (nameKey) {
+      if (staffByName[nameKey] && staffName && !staffByName[nameKey].staff.includes(staffName)) {
+        staffByName[nameKey].staff += `, ${staffName}`;
+      } else {
+        staffByName[nameKey] = { ...entry };
+      }
+    }
+  });
+
+  if (matrixList && matrixList.length > 0) {
+    return buildTimetablePayload(matrixList, staffMap, staffByName, timeTableArray, subjectsDirectory, isJunior);
+  }
+
   return getVerifiedFallbackTimetable(isJunior, studentInfo);
 }
 
@@ -1878,6 +1894,89 @@ app.post('/api/timetable', apiRateLimiter, async (req, res) => {
     res.json({ success: true, timetable });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error processing timetable request.' });
+  }
+});
+
+// ─── Direct Client-Assisted Session Processing (Zero Outbound ERP Calls) ──────
+// Receives raw JSON fetched directly from student's browser and transforms it
+// without making any outbound requests to ERP — 100% immune to server IP blocks.
+app.post('/api/process-session', apiRateLimiter, (req, res) => {
+  try {
+    const {
+      token,
+      studentId,
+      regNumber,
+      loginData,
+      profileRaw,
+      attendanceRaw,
+      caeRaw,
+      timetableRaw
+    } = req.body || {};
+
+    if (!token || !isValidToken(token)) {
+      return res.status(401).json({ success: false, message: 'Valid token required.' });
+    }
+
+    const cleanReg = String(regNumber || '').trim();
+    const sid = Number(studentId) || 0;
+
+    // 1. Process profile
+    const profile = mapProfile(profileRaw || loginData, loginData);
+    const safeProfile = profile || {};
+
+    // 2. Process attendance
+    const dynamicTerm = getDynamicTermDates(null, safeProfile?._raw || safeProfile);
+    const attendance = attendanceRaw
+      ? mapAttendance(attendanceRaw, dynamicTerm.fromDateStr, dynamicTerm.toDateStr, safeProfile?._raw || safeProfile)
+      : { overallPercentage: 0, totalDays: 0, totalPresent: 0, totalAbsent: 0, dailyLogs: [] };
+
+    // 3. Process CAE
+    const cae = caeRaw ? mapCAE(caeRaw) : { cgpa: '', currentGpa: '', cae1: [], cae2: [], arrearDetails: { totalArrears: 0, clearedArrears: 0, history: [] } };
+
+    // 4. Process timetable
+    const rawSem = safeProfile.semester || safeProfile._raw?.CurrentSemester;
+    const semNum = parseInt(String(rawSem || '').replace(/[^0-9]/g, ''), 10) || 3;
+    const isJunior = (semNum === 1 || semNum === 2);
+
+    let timetable = null;
+    if (timetableRaw?.matrixList?.length) {
+      timetable = formatTimetableFromRaw(
+        timetableRaw.staffList || [],
+        timetableRaw.matrixList || [],
+        timetableRaw.timeTableArray || [],
+        timetableRaw.isJunior ?? isJunior,
+        safeProfile?._raw || safeProfile
+      );
+    } else {
+      timetable = getVerifiedFallbackTimetable(isJunior, safeProfile?._raw || safeProfile);
+    }
+
+    const responsePayload = {
+      success: true,
+      token,
+      student: {
+        name: safeProfile.name || 'Student',
+        regNo: safeProfile.regNo || cleanReg,
+        department: safeProfile.department || '—',
+        semester: safeProfile.semester || '—',
+        section: safeProfile.section || '—'
+      },
+      data: {
+        studentDetails: profile,
+        attendanceSummary: attendance,
+        caeResults: cae,
+        timetable: timetable
+      }
+    };
+
+    // Cache the processed result for 10 min
+    const studentCacheKey = `student-data:${sid}`;
+    setCache(studentCacheKey, responsePayload);
+
+    return res.json(responsePayload);
+  } catch (err) {
+    console.error('[ProcessSession Error]', err);
+    return res.status(500).json({ success: false, message: 'Server error processing student session data.' });
   }
 });
 
