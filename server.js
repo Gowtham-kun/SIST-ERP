@@ -254,44 +254,105 @@ function sanitizeForLog(str) {
 
 const ERP_ORIGIN = 'https://erp.sathyabama.ac.in';
 
-// ─── Direct ERP API Caller (Fast REST HTTP) ──────────────────────────────────
-async function erpPostDirect(endpoint, token = null, body = {}) {
-  try {
-    const headers = {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
-      'Origin': ERP_ORIGIN,
-      'Referer': `${ERP_ORIGIN}/student/view`
-    };
-    if (token) {
-      if (!isValidToken(token)) {
-        console.warn('[ERP-API] Invalid token format rejected.');
+// ─── In-Memory TTL Cache (reduces redundant ERP calls) ───────────────────────
+const dataCache = new Map();
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCached(key) {
+  const entry = dataCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { dataCache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCache(key, data, ttlMs = CACHE_TTL_MS) {
+  if (dataCache.size > 5000) {
+    const oldest = dataCache.keys().next().value;
+    if (oldest) dataCache.delete(oldest);
+  }
+  dataCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+// Periodic cache cleanup
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of dataCache.entries()) {
+    if (now > entry.expiresAt) dataCache.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+// ─── Direct ERP API Caller (with Retry, Backoff & Enhanced Diagnostics) ──────
+async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) {
+  const USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+  ];
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENTS[attempt % USER_AGENTS.length],
+        'Accept': 'application/json, text/plain, */*',
+        'Origin': ERP_ORIGIN,
+        'Referer': `${ERP_ORIGIN}/student/view`
+      };
+      if (token) {
+        if (!isValidToken(token)) {
+          console.warn('[ERP-API] Invalid token format rejected.');
+          return null;
+        }
+        headers['Authorization'] = `Bearer ${token}`;
+        headers['Access-Token'] = token;
+        headers['Token'] = token;
+      }
+
+      const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15000)
+      });
+
+      // Handle rate-limiting: wait and retry
+      if (res.status === 429 && attempt < maxRetries) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
+        const jitter = Math.random() * 2000;
+        console.log(`[ERP-API] ${endpoint} rate-limited (429). Retrying in ${retryAfter}s (attempt ${attempt + 1}/${maxRetries})...`);
+        await new Promise(r => setTimeout(r, (retryAfter * 1000) + jitter));
+        continue;
+      }
+
+      // Handle WAF/firewall block: backoff and retry with different UA
+      if (res.status === 403 && attempt < maxRetries) {
+        const delay = 2000 + Math.random() * 3000;
+        console.log(`[ERP-API] ${endpoint} blocked (403). Retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      if (!res.ok) {
+        const errorBody = await res.text().catch(() => '');
+        const headersSummary = {};
+        res.headers.forEach((v, k) => { headersSummary[k] = v; });
+        console.log(`[ERP-API] ${endpoint} HTTP ${res.status} | Headers: ${JSON.stringify(headersSummary)} | Body: ${errorBody.substring(0, 500)}`);
         return null;
       }
-      headers['Authorization'] = `Bearer ${token}`;
-      headers['Access-Token'] = token;
-      headers['Token'] = token;
-    }
-
-
-    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/${endpoint}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12000)
-    });
-
-    if (!res.ok) {
-      console.log(`[ERP-API] ${endpoint} returned HTTP ${res.status}`);
+      const data = await res.json();
+      return data;
+    } catch (e) {
+      console.log(`[ERP-API] ${endpoint} error (attempt ${attempt + 1}/${maxRetries + 1}): ${e.name} — ${e.message}`);
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+        console.log(`[ERP-API] Retrying ${endpoint} in ${Math.round(delay)}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
       return null;
     }
-    const data = await res.json();
-    return data;
-  } catch (e) {
-    console.log(`[ERP-API] ${endpoint} error:`, e.message);
-    return null;
   }
+  return null;
 }
 
 // ─── Dynamic Academic Term Calculation ───────────────────────────────────────
@@ -1716,6 +1777,14 @@ async function loginHandler(req, res) {
 
     console.log(`[REST-Auth] Token acquired for ${maskedReg}. Running modular scrapers...`);
 
+    // Check if we have recently cached data for this student (avoids re-scraping within 10 min)
+    const studentCacheKey = `student-data:${studentId}`;
+    const cachedResponse = getCached(studentCacheKey);
+    if (cachedResponse) {
+      console.log(`[REST-Auth] ✅ Serving cached data for ${maskedReg} (token refreshed).`);
+      return res.json({ ...cachedResponse, token }); // Always return fresh token
+    }
+
     // 2. Run Profile scraper first so student context is available for Attendance & Timetable
     const profile = await scrapeProfile(token, studentId, cleanReg, loginData);
 
@@ -1730,7 +1799,7 @@ async function loginHandler(req, res) {
     console.log(`[REST-Auth] ✅ All data scraped for ${maskedReg} in ${elapsed}ms.`);
 
     const safeProfile = profile || {};
-    return res.json({
+    const responsePayload = {
       success: true,
       token,
       student: {
@@ -1746,7 +1815,11 @@ async function loginHandler(req, res) {
         caeResults: cae,
         timetable: timetable
       }
-    });
+    };
+
+    // Cache the scraped data for 10 minutes to reduce ERP load on repeat logins
+    setCache(studentCacheKey, responsePayload);
+    return res.json(responsePayload);
 
   } catch (err) {
     console.error('[REST-Auth Error]', err?.stack || err?.message || err);
@@ -1811,6 +1884,39 @@ app.post('/api/timetable', apiRateLimiter, async (req, res) => {
 app.get('/_vercel/insights/script.js', (req, res) => res.type('application/javascript').send('// Vercel Insights local stub'));
 app.get('/api/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
+// ─── ERP Health Probe (periodic background check) ────────────────────────────
+let erpHealthStatus = { reachable: true, lastChecked: 0, latencyMs: 0 };
+
+async function probeErpHealth() {
+  const start = Date.now();
+  try {
+    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
+        'Origin': ERP_ORIGIN
+      },
+      body: JSON.stringify({ RegisterNumber: 'healthcheck', Password: 'probe' }),
+      signal: AbortSignal.timeout(8000)
+    });
+    // Even a 401 means the server is reachable and processing requests
+    erpHealthStatus = { reachable: res.status !== 403, lastChecked: Date.now(), latencyMs: Date.now() - start, httpStatus: res.status };
+    console.log(`[ERP-Health] Probe: HTTP ${res.status}, latency ${erpHealthStatus.latencyMs}ms, reachable=${erpHealthStatus.reachable}`);
+  } catch (e) {
+    erpHealthStatus = { reachable: false, lastChecked: Date.now(), latencyMs: Date.now() - start, error: e.message };
+    console.log(`[ERP-Health] Probe failed: ${e.message}`);
+  }
+}
+
+// Probe every 60 seconds
+setInterval(probeErpHealth, 60_000).unref();
+probeErpHealth(); // initial probe on boot
+
+app.get('/api/erp-status', (req, res) => {
+  res.json(erpHealthStatus);
+});
 
 // Export app for Vercel Serverless Functions
 module.exports = app;

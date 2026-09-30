@@ -16,7 +16,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const passInput = document.getElementById('password');
     if (passInput) passInput.focus();
   }
+  // Proactively check ERP server status and warn users before they attempt login
+  checkErpStatus();
 });
+
+// ─── ERP Health Status Check on Page Load ─────────────────────────────────────
+async function checkErpStatus() {
+  try {
+    const resp = await fetch('/api/erp-status');
+    if (!resp.ok) return;
+    const status = await resp.json();
+    if (!status.reachable) {
+      const statusEl = document.getElementById('statusMessage');
+      if (statusEl) showStatus(statusEl, 'error', 'Official ERP server is currently unreachable or slow. Please try again in a moment.');
+    }
+  } catch { /* server unreachable — ignore silently */ }
+}
 
 // ── WebThreads Shader Component (React Bits Adaptation for Vanilla WebGL2) ────
 function initWebThreads() {

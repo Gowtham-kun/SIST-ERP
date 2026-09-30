@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "regions": ["bom1"],
   "functions": {
     "api/index.js": {
       "maxDuration": 60
