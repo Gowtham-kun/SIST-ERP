@@ -267,6 +267,10 @@ function getCached(key) {
 }
 
 function setCache(key, data, ttlMs = CACHE_TTL_MS) {
+  // Never cache incomplete or empty student dossiers
+  if (key.startsWith('student-data:') && (!data?.data?.attendanceSummary?.totalDays || data?.student?.department === '—')) {
+    return;
+  }
   if (dataCache.size > 5000) {
     const oldest = dataCache.keys().next().value;
     if (oldest) dataCache.delete(oldest);
@@ -1913,7 +1917,7 @@ app.post('/api/timetable', apiRateLimiter, async (req, res) => {
 // ─── Direct Client-Assisted Session Processing (Zero Outbound ERP Calls) ──────
 // Receives raw JSON fetched directly from student's browser and transforms it
 // without making any outbound requests to ERP — 100% immune to server IP blocks.
-app.post('/api/process-session', apiRateLimiter, (req, res) => {
+app.post('/api/process-session', apiRateLimiter, async (req, res) => {
   try {
     const {
       token,
@@ -1933,26 +1937,38 @@ app.post('/api/process-session', apiRateLimiter, (req, res) => {
     const cleanReg = String(regNumber || '').trim();
     const sid = Number(studentId) || 0;
 
-    // 1. Process profile
-    const profile = mapProfile(profileRaw || loginData, loginData);
+    // 1. Process profile — if profileRaw is missing or incomplete, scrape directly on server!
+    let profile = null;
+    if (profileRaw?.responseData?.StudentInfo?.[0] || profileRaw?.StudentInfo?.[0]) {
+      profile = mapProfile(profileRaw, loginData);
+    } else {
+      profile = await scrapeProfile(token, sid, cleanReg, loginData);
+    }
     const safeProfile = profile || {};
 
-    // 2. Process attendance
+    // 2. Process attendance — if attendanceRaw is missing or empty, scrape directly on server!
+    let attendance = null;
     const dynamicTerm = getDynamicTermDates(null, safeProfile?._raw || safeProfile);
-    const attendance = attendanceRaw
-      ? mapAttendance(attendanceRaw, dynamicTerm.fromDateStr, dynamicTerm.toDateStr, safeProfile?._raw || safeProfile)
-      : { overallPercentage: 0, totalDays: 0, totalPresent: 0, totalAbsent: 0, dailyLogs: [] };
+    if (attendanceRaw?.responseData?.ActualWorkingDays?.length || attendanceRaw?.ActualWorkingDays?.length) {
+      attendance = mapAttendance(attendanceRaw, dynamicTerm.fromDateStr, dynamicTerm.toDateStr, safeProfile?._raw || safeProfile);
+    } else {
+      attendance = await scrapeAttendance(token, sid, safeProfile?._raw || safeProfile);
+    }
 
     // 3. Process CAE
-    const cae = caeRaw ? mapCAE(caeRaw) : { cgpa: '', currentGpa: '', cae1: [], cae2: [], arrearDetails: { totalArrears: 0, clearedArrears: 0, history: [] } };
+    let cae = null;
+    if (caeRaw?.responseData || caeRaw?.data) {
+      cae = mapCAE(caeRaw);
+    } else {
+      cae = await scrapeCAEResults(token, cleanReg, safeProfile);
+    }
 
     // 4. Process timetable
-    const rawSem = safeProfile.semester || safeProfile._raw?.CurrentSemester;
-    const semNum = parseInt(String(rawSem || '').replace(/[^0-9]/g, ''), 10) || 3;
-    const isJunior = (semNum === 1 || semNum === 2);
-
     let timetable = null;
     if (timetableRaw?.matrixList?.length) {
+      const rawSem = safeProfile.semester || safeProfile._raw?.CurrentSemester;
+      const semNum = parseInt(String(rawSem || '').replace(/[^0-9]/g, ''), 10) || 3;
+      const isJunior = (semNum === 1 || semNum === 2);
       timetable = formatTimetableFromRaw(
         timetableRaw.staffList || [],
         timetableRaw.matrixList || [],
@@ -1961,7 +1977,7 @@ app.post('/api/process-session', apiRateLimiter, (req, res) => {
         safeProfile?._raw || safeProfile
       );
     } else {
-      timetable = getVerifiedFallbackTimetable(isJunior, safeProfile?._raw || safeProfile);
+      timetable = await scrapeTimetable(token, sid, safeProfile?._raw || safeProfile);
     }
 
     const responsePayload = {
@@ -1969,6 +1985,7 @@ app.post('/api/process-session', apiRateLimiter, (req, res) => {
       token,
       student: {
         name: safeProfile.name || 'Student',
+        regNumber: safeProfile.regNo || cleanReg,
         regNo: safeProfile.regNo || cleanReg,
         department: safeProfile.department || '—',
         semester: safeProfile.semester || '—',

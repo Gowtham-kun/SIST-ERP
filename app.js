@@ -3,7 +3,7 @@
  * All data comes from the live backend. No hardcoded placeholders.
  */
 
-let appState = { user: null, data: null, activeTab: 'profile', timetableDay: null, timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null };
+let appState = { user: null, data: null, activeTab: 'profile', timetableDay: null, timetableLayout: 'day', attendanceSubView: 'daily', calendarYear: null, calendarMonth: null, calcSelectedDates: [] };
 
 document.addEventListener('DOMContentLoaded', () => {
   initWebThreads();
@@ -552,6 +552,52 @@ function changeCalendarMonth(offset) {
   setTab('attendance');
 }
 
+function toggleCalcDate(dateStr) {
+  if (!appState.calcSelectedDates) appState.calcSelectedDates = [];
+  const idx = appState.calcSelectedDates.indexOf(dateStr);
+  if (idx >= 0) {
+    appState.calcSelectedDates.splice(idx, 1);
+  } else {
+    appState.calcSelectedDates.push(dateStr);
+  }
+  setTab('attendance');
+}
+
+function clearCalcDates() {
+  appState.calcSelectedDates = [];
+  setTab('attendance');
+}
+
+function selectCalcPreset(preset) {
+  if (!appState.calcSelectedDates) appState.calcSelectedDates = [];
+  const now = new Date();
+  let target = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (preset === 'tomorrow') {
+    target.setDate(target.getDate() + 1);
+  } else if (preset === 'nextMonday') {
+    const day = target.getDay();
+    const diff = (day === 0 ? 1 : (8 - day));
+    target.setDate(target.getDate() + diff);
+  } else if (preset === 'nextFriday') {
+    const day = target.getDay();
+    let diff = (5 - day);
+    if (diff <= 0) diff += 7;
+    target.setDate(target.getDate() + diff);
+  }
+
+  const mStr = String(target.getMonth() + 1).padStart(2, '0');
+  const dStr = String(target.getDate()).padStart(2, '0');
+  const key = `${target.getFullYear()}-${mStr}-${dStr}`;
+
+  if (!appState.calcSelectedDates.includes(key)) {
+    appState.calcSelectedDates.push(key);
+  }
+  appState.calendarMonth = target.getMonth();
+  appState.calendarYear  = target.getFullYear();
+  setTab('attendance');
+}
+
 function parseLogDate(dateStr) {
   if (!dateStr || dateStr === '[404]' || dateStr === '—') return null;
   const str = String(dateStr).trim();
@@ -766,18 +812,26 @@ function renderAttendance() {
   return `
   <div class="tab-content space-y-6">
 
-    <!-- Top Sub-Navigation Toggle: Daily vs Subject Attendance (Clean Segmented Control) -->
+    <!-- Top Sub-Navigation Toggle: Daily vs Subject Attendance vs Calculator (Clean Segmented Control) -->
     <div class="w-full pb-1">
-      <div class="mobile-segmented-control max-w-md mx-auto">
+      <div class="mobile-segmented-control max-w-xl mx-auto">
         <button onclick="setAttendanceSubView('daily')" id="sub-btn-daily"
           class="mobile-segmented-item ${subView==='daily' ? 'active' : ''}">
           <span class="material-symbols-outlined text-base">calendar_month</span>
-          <span>Daily Attendance</span>
+          <span class="hidden sm:inline">Daily Attendance</span>
+          <span class="sm:hidden">Daily</span>
         </button>
         <button onclick="setAttendanceSubView('subject')" id="sub-btn-subject"
           class="mobile-segmented-item ${subView==='subject' ? 'active' : ''}">
           <span class="material-symbols-outlined text-base">menu_book</span>
-          <span>Subject Attendance</span>
+          <span class="hidden sm:inline">Subject Attendance</span>
+          <span class="sm:hidden">Subjects</span>
+        </button>
+        <button onclick="setAttendanceSubView('calculator')" id="sub-btn-calculator"
+          class="mobile-segmented-item ${subView==='calculator' ? 'active' : ''}">
+          <span class="material-symbols-outlined text-base">calculate</span>
+          <span class="hidden sm:inline">Attendance Calculator</span>
+          <span class="sm:hidden">Calculator</span>
         </button>
       </div>
     </div>
@@ -825,10 +879,12 @@ function renderAttendance() {
 
     </div>
 
-    <!-- Main Content Area: Subject Attendance View vs Calendar View -->
+    <!-- Main Content Area: Subject Attendance View vs Calendar View vs Attendance Calculator View -->
     ${subView === 'subject'
       ? renderSubjectAttendanceView(parsedLogs, enrichedTt)
-      : renderCalendarView(parsedLogs, minDate, maxDate)}
+      : (subView === 'calculator'
+          ? renderAttendanceCalculatorView(parsedLogs, enrichedTt, minDate, maxDate)
+          : renderCalendarView(parsedLogs, minDate, maxDate))}
 
   </div>`;
 }
@@ -1486,6 +1542,579 @@ function renderCalendarView(parsedLogs, minDate, maxDate) {
     <div class="grid grid-cols-7 gap-2 sm:gap-3">
       ${cells.join('')}
     </div>
+
+  </div>`;
+}
+
+// ── Attendance Calculator View (Interactive Holiday & Bunk Simulation) ──────
+function renderAttendanceCalculatorView(parsedLogs, enrichedTt, minDate, maxDate) {
+  const currentYear  = appState.calendarYear !== null ? appState.calendarYear : new Date().getFullYear();
+  const currentMonth = appState.calendarMonth !== null ? appState.calendarMonth : new Date().getMonth();
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const dayHeaderNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayNamesFull = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  // Lookup map of past attendance by "YYYY-MM-DD"
+  const statusMap = {};
+  parsedLogs.forEach(l => {
+    if (!l.parsedDate) return;
+    const y = l.parsedDate.getFullYear();
+    const m = String(l.parsedDate.getMonth() + 1).padStart(2, '0');
+    const d = String(l.parsedDate.getDate()).padStart(2, '0');
+    statusMap[`${y}-${m}-${d}`] = l.status;
+  });
+
+  const a = appState.data?.attendanceSummary || {};
+  const basePresent = a.totalPresent || parsedLogs.filter(l => l.status === 'Present').length;
+  const baseAbsent  = a.totalAbsent  || parsedLogs.filter(l => l.status === 'Absent').length;
+  const baseTotalDays = a.totalDays || (basePresent + baseAbsent);
+  const basePct = baseTotalDays > 0 ? parseFloat(((basePresent / baseTotalDays) * 100).toFixed(1)) : (a.overallPercentage || 0);
+
+  // Baseline subjects
+  const { theorySubjects, labSubjects } = calculateSubjectAttendance(parsedLogs, enrichedTt);
+  const allBaseSubjects = [...theorySubjects, ...labSubjects];
+  const subSim = {};
+  for (const s of allBaseSubjects) {
+    subSim[s.key] = {
+      ...s,
+      projConducted: s.conducted,
+      projAttended: s.attended,
+      projMissed: s.missed,
+      hoursMissed: 0
+    };
+  }
+
+  const selectedDates = appState.calcSelectedDates || [];
+
+  // Helper to get non-break slots for a day
+  const getSlotsForDay = (dayName) => {
+    return (enrichedTt.schedule?.[dayName] || []).filter(slot => !slot.isBreak && !slot.isLunch);
+  };
+
+  let deltaPresent = 0;
+  let deltaTotalDays = 0;
+  let totalHolidayClasses = 0;
+  let weekendDaysSelected = 0;
+
+  // Process all selected holiday dates
+  const sortedSelected = [...selectedDates].sort();
+  sortedSelected.forEach(dateStr => {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return;
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const dt = new Date(y, m, d);
+    const dayOfWeek = dt.getDay();
+    const dayName = dayNamesFull[dayOfWeek];
+
+    const daySlots = getSlotsForDay(dayName);
+    if (dayOfWeek === 0 || daySlots.length === 0) {
+      weekendDaysSelected++;
+      return;
+    }
+
+    totalHolidayClasses += daySlots.length;
+    const isPastPresent = statusMap[dateStr] === 'Present';
+
+    if (isPastPresent) {
+      deltaPresent -= 1;
+    } else if (!statusMap[dateStr]) {
+      deltaTotalDays += 1;
+    }
+
+    // Allocate lost hours per subject
+    for (const slot of daySlots) {
+      const norm = normalizeSubName(slot.subjectName);
+      const key = (slot.isLab ? 'LAB::' : 'THEORY::') + norm;
+      if (subSim[key]) {
+        subSim[key].hoursMissed += 1;
+        if (isPastPresent) {
+          subSim[key].projAttended = Math.max(0, subSim[key].projAttended - 1);
+          subSim[key].projMissed += 1;
+        } else {
+          subSim[key].projConducted += 1;
+          subSim[key].projMissed += 1;
+        }
+      }
+    }
+  });
+
+  // Calculate projected overall values
+  const projPresent = Math.max(0, basePresent + deltaPresent);
+  const projTotalDays = baseTotalDays + deltaTotalDays;
+  const projPct = projTotalDays > 0 ? parseFloat(((projPresent / projTotalDays) * 100).toFixed(1)) : basePct;
+  const overallLoss = parseFloat((basePct - projPct).toFixed(1));
+  const isProjPass = projPct >= 80;
+  const safeBunksRemaining = projPct >= 80 ? Math.max(0, Math.floor((projPresent - 0.80 * projTotalDays) / 0.80)) : 0;
+  const neededDaysToRecover = projPct < 80 ? Math.max(1, Math.ceil((0.80 * projTotalDays - projPresent) / 0.20)) : 0;
+
+  // Calculate projected per-subject values
+  for (const key of Object.keys(subSim)) {
+    const s = subSim[key];
+    s.projPct = s.projConducted > 0 ? parseFloat(((s.projAttended / s.projConducted) * 100).toFixed(1)) : 100.0;
+    s.projLoss = parseFloat((s.percentage - s.projPct).toFixed(1));
+    s.projIsPass = s.projPct >= 80;
+    if (s.projIsPass) {
+      s.projSafeBunks = Math.max(0, Math.floor((s.projAttended - 0.80 * s.projConducted) / 0.80));
+      s.projNeededToRecover = 0;
+    } else {
+      s.projNeededToRecover = Math.max(1, Math.ceil((0.80 * s.projConducted - s.projAttended) / 0.20));
+      s.projSafeBunks = 0;
+    }
+  }
+
+  const affectedSubjects = Object.values(subSim).filter(s => s.hoursMissed > 0);
+  const unaffectedSubjects = Object.values(subSim).filter(s => s.hoursMissed === 0);
+
+  // Build Calendar Grid
+  const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+  const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const cells = [];
+
+  for (let i = 0; i < firstDayIndex; i++) {
+    cells.push(`<div class="h-16 sm:h-20 rounded-xl bg-white/[0.01] border border-white/5 opacity-15"></div>`);
+  }
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const mStr = String(currentMonth + 1).padStart(2, '0');
+    const dStr = String(day).padStart(2, '0');
+    const dateKey = `${currentYear}-${mStr}-${dStr}`;
+
+    const dt = new Date(currentYear, currentMonth, day);
+    const dayOfWeek = dt.getDay();
+    const dayName = dayNamesFull[dayOfWeek];
+    const daySlots = getSlotsForDay(dayName);
+    const isWeekend = dayOfWeek === 0 || (daySlots.length === 0 && dayOfWeek === 6);
+
+    const isToday = (dateKey === todayStr);
+    const isSelected = selectedDates.includes(dateKey);
+    const pastStatus = statusMap[dateKey];
+
+    let cellClasses = 'bg-white/[0.02] border-white/10 hover:border-amber-400/50 hover:bg-white/[0.05]';
+    let badgeHtml = '';
+
+    if (isSelected) {
+      cellClasses = 'holiday-selected-card ring-2 ring-amber-400 text-white font-black';
+      badgeHtml = `
+        <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase bg-amber-400 text-slate-950 shadow-sm truncate">
+          <span class="material-symbols-outlined text-[10px]">beach_access</span>
+          <span>Holiday</span>
+        </span>`;
+    } else if (pastStatus === 'Present') {
+      cellClasses = 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200 hover:border-amber-400/60';
+      badgeHtml = `<span class="text-[8px] sm:text-[9px] font-semibold text-emerald-400 uppercase truncate">Present</span>`;
+    } else if (pastStatus === 'Absent') {
+      cellClasses = 'bg-rose-500/10 border-rose-500/25 text-rose-200 hover:border-amber-400/60';
+      badgeHtml = `<span class="text-[8px] sm:text-[9px] font-semibold text-rose-400 uppercase truncate">Absent</span>`;
+    } else if (isWeekend) {
+      cellClasses = 'bg-white/[0.01] border-white/5 text-gray-500 opacity-60 hover:opacity-100 hover:border-white/20';
+      badgeHtml = `<span class="text-[8px] sm:text-[9px] font-medium text-gray-500 uppercase truncate">Weekend</span>`;
+    } else {
+      cellClasses = 'bg-blue-500/[0.03] border-blue-500/15 text-gray-300 hover:border-amber-400/60 hover:bg-amber-500/10';
+      badgeHtml = `<span class="text-[8px] sm:text-[9px] font-mono text-cyan-300/80 truncate">${daySlots.length} classes</span>`;
+    }
+
+    cells.push(`
+      <div onclick="toggleCalcDate('${dateKey}')"
+           role="button"
+           tabindex="0"
+           title="${isSelected ? 'Click to unselect holiday' : `Click to simulate holiday (${daySlots.length} classes)`}"
+           class="h-16 sm:h-20 rounded-xl border p-1.5 sm:p-2 flex flex-col justify-between transition-all duration-200 cursor-pointer active:scale-95 select-none ${cellClasses} ${isToday ? 'ring-1 ring-blue-400' : ''}">
+        <div class="flex items-center justify-between leading-none">
+          <span class="text-xs sm:text-base font-mono font-bold">${day}</span>
+          ${isToday ? '<span class="text-[7px] sm:text-[8px] px-1 py-0.2 rounded bg-blue-500 text-white font-extrabold uppercase">Today</span>' : ''}
+        </div>
+        <div class="w-full flex items-center justify-between gap-1 overflow-hidden">
+          ${badgeHtml}
+        </div>
+      </div>
+    `);
+  }
+
+  const renderSimulationResults = () => {
+    if (selectedDates.length === 0) {
+      return `
+      <div class="glass-card rounded-2xl p-6 sm:p-8 border border-white/10 text-center space-y-4">
+        <div class="w-14 h-14 sm:w-16 sm:h-16 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center text-amber-300 shadow-lg shadow-amber-500/10">
+          <span class="material-symbols-outlined text-3xl sm:text-4xl">touch_app</span>
+        </div>
+        <div class="max-w-md mx-auto space-y-1">
+          <h4 class="text-base sm:text-lg font-bold text-white tracking-tight">No Holiday Dates Selected</h4>
+          <p class="text-xs sm:text-sm text-gray-400">Click any day on the calendar above to simulate taking leave and view your precise attendance impact in real-time.</p>
+        </div>
+        <div class="flex items-center justify-center gap-2 pt-1 flex-wrap">
+          <button onclick="selectCalcPreset('tomorrow')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 flex items-center gap-1.5 transition-all">
+            <span class="material-symbols-outlined text-sm text-amber-400">add</span>
+            <span>Simulate Tomorrow</span>
+          </button>
+          <button onclick="selectCalcPreset('nextMonday')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 flex items-center gap-1.5 transition-all">
+            <span class="material-symbols-outlined text-sm text-amber-400">add</span>
+            <span>Simulate Next Monday</span>
+          </button>
+        </div>
+      </div>`;
+    }
+
+    return `
+    <div class="space-y-6">
+      
+      <!-- Simulation Summary Hero Card -->
+      <div class="glass-card rounded-2xl p-5 sm:p-6 border border-amber-500/30 bg-gradient-to-br from-amber-500/[0.07] via-slate-900/60 to-purple-500/[0.05] shadow-xl shadow-amber-950/20 space-y-6">
+        
+        <!-- Header Row -->
+        <div class="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-white/10">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shadow-sm">
+              <span class="material-symbols-outlined text-xl">analytics</span>
+            </div>
+            <div>
+              <h4 class="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-2">
+                <span>Holiday Impact Projection</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">${selectedDates.length} Day${selectedDates.length > 1 ? 's' : ''} Selected</span>
+              </h4>
+              <p class="text-xs text-gray-400">Projected attendance if you take leave on selected dates</p>
+            </div>
+          </div>
+          <button onclick="clearCalcDates()"
+                  class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <span class="material-symbols-outlined text-sm">restart_alt</span>
+            <span>Clear Selection</span>
+          </button>
+        </div>
+
+        <!-- Selected Dates Pills List -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs text-gray-400 font-medium">Selected Days:</span>
+          ${sortedSelected.map(ds => {
+            const [y, m, d] = ds.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            const dName = dayNamesFull[dt.getDay()];
+            const mName = monthNames[m].substring(0, 3);
+            const slotsCount = getSlotsForDay(dName).length;
+            return `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-white/5 border border-amber-400/40 text-amber-200">
+              <span>${dName}, ${mName} ${d}</span>
+              <span class="text-[10px] text-gray-400">(${slotsCount > 0 ? slotsCount + ' hrs' : '0 hrs'})</span>
+              <button onclick="event.stopPropagation(); toggleCalcDate('${ds}')" class="text-gray-400 hover:text-rose-400 text-sm leading-none ml-1">✕</button>
+            </span>`;
+          }).join('')}
+        </div>
+
+        <!-- 3-Column Metrics Grid: Current vs Impact vs Projected -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          
+          <!-- Current -->
+          <div class="glass-card rounded-xl p-4 border border-white/10 bg-white/[0.02] flex flex-col justify-between gap-2">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Current Attendance</span>
+            <div class="flex items-baseline gap-2">
+              <span class="text-3xl font-black font-mono text-white">${basePct}%</span>
+              <span class="text-xs text-gray-400 font-mono">(${basePresent}/${baseTotalDays} days)</span>
+            </div>
+            <div>
+              <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                <span class="material-symbols-outlined text-sm">check</span>
+                <span>Current Status: Eligible</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Impact Delta -->
+          <div class="glass-card rounded-xl p-4 border border-rose-500/30 bg-rose-500/[0.05] flex flex-col justify-between gap-2">
+            <span class="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Projected Loss</span>
+            <div class="flex items-baseline gap-2">
+              <span class="text-3xl font-black font-mono text-rose-400">-${overallLoss}%</span>
+              <span class="text-xs text-rose-300 font-mono">(${totalHolidayClasses} class hrs missed)</span>
+            </div>
+            <div>
+              <span class="text-[11px] text-gray-300">
+                ${totalHolidayClasses > 0 ? `Affects <strong>${affectedSubjects.length}</strong> academic subjects` : 'No instructional classes missed'}
+              </span>
+            </div>
+          </div>
+
+          <!-- Projected Result -->
+          <div class="glass-card rounded-xl p-4 border ${isProjPass ? 'border-emerald-500/30 bg-emerald-500/[0.05]' : 'border-rose-500/40 bg-rose-500/[0.08]'} flex flex-col justify-between gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider ${isProjPass ? 'text-emerald-400' : 'text-rose-400'}">Projected Attendance</span>
+            <div class="flex items-baseline gap-2">
+              <span class="text-3xl font-black font-mono ${isProjPass ? 'text-emerald-300' : 'text-rose-300'}">${projPct}%</span>
+              <span class="text-xs text-gray-400 font-mono">(${projPresent}/${projTotalDays} days)</span>
+            </div>
+            <div>
+              <span class="inline-flex items-center gap-1 text-[11px] font-bold ${isProjPass ? 'text-emerald-300' : 'text-rose-300'}">
+                <span class="material-symbols-outlined text-sm">${isProjPass ? 'verified' : 'warning'}</span>
+                <span>${isProjPass ? `Safe (Can miss ${safeBunksRemaining} more days)` : `Below 80%! Needs ${neededDaysToRecover} days recovery`}</span>
+              </span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Subject-Wise Impact Breakdown Section -->
+      <div class="space-y-4">
+        
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h4 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+              <span class="material-symbols-outlined text-amber-400">menu_book</span>
+              <span>Subject-Wise Attendance Loss</span>
+            </h4>
+            <p class="text-xs text-gray-400">Exact percentage drop for subjects scheduled on your selected holiday date(s)</p>
+          </div>
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-white/5 border border-white/10 text-gray-300">
+            ${affectedSubjects.length} Affected Course${affectedSubjects.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        ${affectedSubjects.length === 0 ? `
+          <div class="glass-card rounded-xl p-5 border border-emerald-500/20 bg-emerald-500/5 text-center text-xs text-emerald-300 flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-lg">celebration</span>
+            <span>Selected date(s) have no instructional classes scheduled in your timetable. 0 subject hours lost!</span>
+          </div>
+        ` : `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${affectedSubjects.map(s => {
+              const isPass = s.projIsPass;
+              const borderClass = isPass ? 'border-white/10 hover:border-amber-400/40 bg-white/[0.02]' : 'border-rose-500/40 bg-rose-500/[0.04] shadow-lg shadow-rose-950/20';
+              return `
+              <div class="glass-card rounded-2xl p-4 sm:p-5 border ${borderClass} flex flex-col justify-between gap-4 transition-all duration-300">
+                
+                <!-- Card Header -->
+                <div class="space-y-1">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0 flex-1">
+                      <h5 class="text-sm sm:text-base font-bold text-white leading-snug break-words flex items-center gap-1.5 flex-wrap">
+                        <span>${esc(s.rawName)}</span>
+                        ${s.isLab ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">[LAB]</span>' : ''}
+                      </h5>
+                      <div class="flex items-center gap-1.5 text-xs text-gray-400 mt-0.5">
+                        <span class="material-symbols-outlined text-sm text-gray-500">person</span>
+                        <span class="truncate">${esc(s.staff || 'Faculty')}</span>
+                      </div>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      -${s.hoursMissed} ${s.isLab ? 'hr' : 'class'}${s.hoursMissed > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Percentages Comparison: Current -> Projected -->
+                <div class="flex items-center justify-between gap-3 pt-1">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-lg font-mono text-gray-400 line-through">${s.percentage}%</span>
+                      <span class="text-2xl sm:text-3xl font-black font-mono tracking-tight ${isPass ? 'text-amber-300' : 'text-rose-400'}">
+                        ${s.projPct}%
+                      </span>
+                      <span class="px-1.5 py-0.5 rounded text-xs font-black font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                        -${s.projLoss}%
+                      </span>
+                    </div>
+                    <span class="text-[10px] text-gray-400 font-medium">Projected Attendance</span>
+                  </div>
+
+                  <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold flex-shrink-0 ${isPass ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}">
+                    ${isPass ? '<span class="material-symbols-outlined text-xs">check</span> Eligible (≥80%)' : '<span class="material-symbols-outlined text-xs">warning</span> Below 80%'}
+                  </span>
+                </div>
+
+                <!-- Progress Bar with 80% Threshold Line -->
+                <div class="space-y-1">
+                  <div class="relative w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-500 ${isPass ? 'bg-gradient-to-r from-amber-500 to-emerald-400' : 'bg-gradient-to-r from-rose-500 to-red-600'}"
+                         style="width: ${Math.min(s.projPct, 100)}%;"></div>
+                    <div class="absolute top-0 bottom-0 left-[80%] w-0.5 bg-white/50 shadow" title="80% Threshold"></div>
+                  </div>
+                  <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+                    <span>0%</span>
+                    <span class="text-gray-400 font-semibold">80% Threshold</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+
+                <!-- Stats Grid: Conducted, Attended, Missed -->
+                <div class="grid grid-cols-3 gap-2 text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-xs font-mono">
+                  <div>
+                    <span class="text-[10px] text-gray-400 block uppercase">Conducted</span>
+                    <span class="font-bold text-white text-sm">${s.projConducted}</span>
+                    <span class="text-[9px] text-gray-500 block">${s.isLab ? 'hrs' : 'classes'}</span>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-emerald-400 block uppercase">Attended</span>
+                    <span class="font-bold text-emerald-300 text-sm">${s.projAttended}</span>
+                    <span class="text-[9px] text-gray-500 block">${s.isLab ? 'hrs' : 'classes'}</span>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-rose-400 block uppercase">Missed Total</span>
+                    <span class="font-bold text-rose-300 text-sm">${s.projMissed}</span>
+                    <span class="text-[9px] text-gray-500 block">(+${s.hoursMissed})</span>
+                  </div>
+                </div>
+
+                <!-- Footer Recommendation -->
+                <div class="pt-2 border-t border-white/5 text-[11px]">
+                  ${!isPass ? `
+                    <div class="text-rose-300 flex items-center gap-1.5 font-medium">
+                      <span class="material-symbols-outlined text-sm text-rose-400">notification_important</span>
+                      <span>🚨 Drops below 80%! Must attend next <strong>${s.projNeededToRecover}</strong> consecutive ${s.isLab ? 'hour(s)' : 'class(es)'} to recover.</span>
+                    </div>
+                  ` : `
+                    <div class="text-emerald-300/90 flex items-center gap-1.5 font-medium">
+                      <span class="material-symbols-outlined text-sm text-emerald-400">verified</span>
+                      <span>Safe to take: Can still miss <strong>${s.projSafeBunks}</strong> more ${s.isLab ? 'hour(s)' : 'class(es)'}.</span>
+                    </div>
+                  `}
+                </div>
+
+              </div>`;
+            }).join('')}
+          </div>
+        `}
+
+        <!-- Collapsible Unaffected Courses -->
+        ${unaffectedSubjects.length > 0 ? `
+          <details class="glass-card rounded-xl p-3 sm:p-4 border border-white/5 text-xs">
+            <summary class="cursor-pointer text-gray-400 hover:text-white font-semibold flex items-center justify-between select-none">
+              <span>View Unaffected Subjects (${unaffectedSubjects.length} courses with 0 hours on selected days)</span>
+              <span class="material-symbols-outlined text-sm text-gray-400">expand_more</span>
+            </summary>
+            <div class="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              ${unaffectedSubjects.map(u => `
+                <div class="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 flex items-center justify-between gap-2">
+                  <span class="text-gray-300 font-medium truncate">${esc(u.rawName)}</span>
+                  <span class="text-gray-400 font-mono text-[11px] flex-shrink-0">${u.percentage}% (Unaffected)</span>
+                </div>
+              `).join('')}
+            </div>
+          </details>
+        ` : ''}
+
+      </div>
+
+    </div>`;
+  };
+
+  return `
+  <div class="space-y-6">
+
+    <!-- Top Calculator Info Banner -->
+    <div class="calc-glow-banner rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-3.5">
+        <div class="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shadow-md shadow-amber-500/20 flex-shrink-0">
+          <span class="material-symbols-outlined text-2xl">event_upcoming</span>
+        </div>
+        <div>
+          <h3 class="text-base sm:text-lg font-black text-white tracking-tight">Interactive Attendance & Bunk Calculator</h3>
+          <p class="text-xs text-gray-300">Select any day on the calendar to see exact overall and subject-wise attendance loss before taking leave.</p>
+        </div>
+      </div>
+      
+      <!-- Preset Action Buttons -->
+      <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full md:w-auto justify-end">
+        <button onclick="selectCalcPreset('tomorrow')"
+                class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95">
+          <span class="material-symbols-outlined text-sm text-amber-400">today</span>
+          <span>Tomorrow</span>
+        </button>
+        <button onclick="selectCalcPreset('nextMonday')"
+                class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95">
+          <span class="material-symbols-outlined text-sm text-blue-400">event</span>
+          <span>Next Monday</span>
+        </button>
+        <button onclick="selectCalcPreset('nextFriday')"
+                class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95">
+          <span class="material-symbols-outlined text-sm text-purple-400">event</span>
+          <span>Next Friday</span>
+        </button>
+        ${selectedDates.length > 0 ? `
+          <button onclick="clearCalcDates()"
+                  class="px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95">
+            <span class="material-symbols-outlined text-sm">close</span>
+            <span>Clear (${selectedDates.length})</span>
+          </button>
+        ` : ''}
+      </div>
+    </div>
+
+    <!-- Calendar Card -->
+    <div class="glass-card rounded-2xl p-4 sm:p-6 border border-white/10 space-y-5">
+      
+      <!-- Month Navigation Controls -->
+      <div class="flex items-center justify-between flex-wrap gap-4 border-b border-white/10 pb-4">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-amber-400 text-2xl">calendar_month</span>
+          <div>
+            <h3 class="text-lg sm:text-xl font-bold text-white tracking-tight">${monthNames[currentMonth]} ${currentYear}</h3>
+            <p class="text-xs text-gray-400">Click dates to toggle planned leave</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5 sm:gap-2">
+          <button onclick="changeCalendarMonth(-1)"
+            title="Previous Month"
+            class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 flex items-center justify-center">
+            <span class="material-symbols-outlined text-lg">chevron_left</span>
+          </button>
+          <button onclick="resetCalendarToToday()"
+            title="Jump to Current Month"
+            class="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-amber-600/20 border border-white/10 hover:border-amber-500/30 text-xs font-semibold text-gray-300 hover:text-amber-300 transition-all active:scale-95 flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">today</span>
+            <span>Today</span>
+          </button>
+          <span class="text-xs font-mono text-gray-300 px-2 sm:px-3 font-semibold">${monthNames[currentMonth]}</span>
+          <button onclick="changeCalendarMonth(1)"
+            title="Next Month"
+            class="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all active:scale-95 flex items-center justify-center">
+            <span class="material-symbols-outlined text-lg">chevron_right</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Calendar Legend -->
+      <div class="flex items-center gap-4 text-[11px] sm:text-xs flex-wrap bg-white/[0.02] p-2.5 rounded-xl border border-white/5">
+        <span class="text-gray-400 font-semibold">LEGEND:</span>
+        <div class="flex items-center gap-1.5">
+          <span class="w-3 h-3 rounded bg-amber-400 inline-block border border-amber-300 shadow-sm shadow-amber-400/50"></span>
+          <span class="text-white font-bold">Planned Holiday (Selected)</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-3 h-3 rounded bg-blue-500/30 inline-block border border-blue-400/50"></span>
+          <span class="text-gray-300 font-medium">Upcoming Working Day</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-3 h-3 rounded bg-emerald-500/30 inline-block border border-emerald-400/40"></span>
+          <span class="text-gray-300 font-medium">Past Present</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-3 h-3 rounded bg-rose-500/30 inline-block border border-rose-400/40"></span>
+          <span class="text-gray-300 font-medium">Past Absent</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-3 h-3 rounded bg-white/5 inline-block border border-white/10"></span>
+          <span class="text-gray-400 font-medium">Weekend</span>
+        </div>
+      </div>
+
+      <!-- Day Headers Grid -->
+      <div class="grid grid-cols-7 gap-1.5 sm:gap-2 text-center text-xs font-bold text-gray-400 uppercase tracking-wider pb-1 border-b border-white/5">
+        ${dayHeaderNames.map(d => `<div>${d}</div>`).join('')}
+      </div>
+
+      <!-- Calendar Days Grid -->
+      <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
+        ${cells.join('')}
+      </div>
+
+    </div>
+
+    <!-- Calculated Simulation Impact Results -->
+    ${renderSimulationResults()}
 
   </div>`;
 }

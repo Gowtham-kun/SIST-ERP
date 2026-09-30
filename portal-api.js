@@ -68,8 +68,6 @@ const PortalAPI = {
     };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
-      headers['Access-Token'] = token;
-      headers['Token'] = token;
     }
     const res = await fetch(`${ERP_BASE_URL}/${endpoint}`, {
       method: 'POST',
@@ -258,36 +256,36 @@ const PortalAPI = {
     let payload = null;
     let clientError = null;
 
-    // Strategy 1: Direct Client Gateway (Preferred: eliminates server IP block & slow proxy hops)
+    // Strategy 1: Server-Side Scraper Proxy (Primary: parallel extraction, complete dossiers, zero browser CORS issues)
     try {
-      payload = await this.loginDirectClient(cleanReg, cleanPass);
-      console.log('✅ Authenticated via Direct Client Gateway');
-    } catch (clientErr) {
-      clientError = clientErr;
-      console.warn('[PortalAPI] Direct client gateway attempt failed:', clientErr.message, '— Attempting server proxy fallback...');
+      const resp = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ regNumber: cleanReg, password: cleanPass })
+      });
+      const serverData = await resp.json().catch(() => null);
+      if (resp.ok && serverData?.success && serverData?.data?.attendanceSummary?.totalDays > 0) {
+        payload = serverData;
+        console.log('✅ Authenticated via High-Speed Scraper Proxy');
+      } else if (resp.status === 401 && serverData?.message) {
+        // Explicit credential rejection from ERP
+        throw new Error(serverData.message);
+      }
+    } catch (proxyErr) {
+      // If explicit credential failure, rethrow immediately
+      if (proxyErr.message && !proxyErr.message.includes('fetch') && !proxyErr.message.includes('NetworkError')) {
+        throw proxyErr;
+      }
+      console.warn('[PortalAPI] Server proxy unavailable, trying Direct Client Gateway...', proxyErr.message);
     }
 
-    // Strategy 2: Server-Side Proxy Fallback (runs if Direct Gateway failed or was rejected)
+    // Strategy 2: Direct Client Gateway (Fallback if server proxy is unavailable)
     if (!payload) {
       try {
-        const resp = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ regNumber: cleanReg, password: cleanPass })
-        });
-        const serverData = await resp.json().catch(() => null);
-        if (resp.ok && serverData?.success) {
-          payload = serverData;
-          console.log('✅ Authenticated via Server Proxy Fallback');
-        } else {
-          const msg = serverData?.message || clientError?.message || 'Invalid Register Number or Password. Please check your credentials.';
-          throw new Error(msg);
-        }
-      } catch (proxyErr) {
-        if (clientError?.message) {
-          throw clientError;
-        }
-        throw new Error(proxyErr.message || 'Authentication failed. Please check your credentials.');
+        payload = await this.loginDirectClient(cleanReg, cleanPass);
+        console.log('✅ Authenticated via Direct Client Gateway');
+      } catch (clientErr) {
+        throw new Error(clientErr.message || 'Authentication failed. Please check your credentials.');
       }
     }
 
