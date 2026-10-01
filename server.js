@@ -102,6 +102,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Maintenance Mode Guard ───────────────────────────────────────────────────
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path === '/login') {
+    if (req.path === '/api/health' || req.path === '/health') {
+      return res.status(503).json({ status: 'maintenance', message: 'Maintenance mode. Will be back soon.' });
+    }
+    return res.status(503).json({
+      success: false,
+      maintenance: true,
+      message: 'Maintenance mode. Will be back soon.'
+    });
+  }
+  next();
+});
+
 // ── In-Memory Sliding-Window Rate Limiter (CWE-307 / CWE-770) ─────────────────
 function createRateLimiter({ windowMs, maxRequests, message }) {
   const hits = new Map();

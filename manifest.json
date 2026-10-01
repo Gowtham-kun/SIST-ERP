@@ -1,12 +1,12 @@
 {
-  "name": "Sathyabama Student Portal",
-  "short_name": "SIST Portal",
-  "description": "Blazing fast student portal and ERP dashboard for Sathyabama Institute of Science and Technology",
+  "name": "Maintenance mode",
+  "short_name": "Maintenance",
+  "description": "Maintenance mode. Will be back soon.",
   "start_url": "/",
   "id": "/",
   "display": "standalone",
-  "background_color": "#0f131c",
-  "theme_color": "#0f131c",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "orientation": "portrait-primary",
   "icons": [
     {
