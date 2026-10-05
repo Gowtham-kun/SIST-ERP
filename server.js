@@ -296,14 +296,39 @@ async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) 
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      const ua = USER_AGENTS[attempt % USER_AGENTS.length];
       const headers = {
         'Content-Type': 'application/json',
-        'User-Agent': USER_AGENTS[attempt % USER_AGENTS.length],
+        'User-Agent': ua,
         'Accept': 'application/json, text/plain, */*',
         'Origin': ERP_ORIGIN,
         'Referer': `${ERP_ORIGIN}/student/view`,
         'ERP-API-KEY': ERP_API_KEY
       };
+
+      // For MasterStudent/login, execute the pre-auth handshake with MasterStudent/apikey to acquire the dynamic erp_sk session cookie
+      if (endpoint === 'MasterStudent/login') {
+        headers['Referer'] = `${ERP_ORIGIN}/login`;
+        try {
+          const keyRes = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/apikey`, {
+            method: 'GET',
+            headers: {
+              'User-Agent': ua,
+              'Accept': 'application/json, text/plain, */*',
+              'Origin': ERP_ORIGIN,
+              'Referer': `${ERP_ORIGIN}/login`
+            },
+            signal: AbortSignal.timeout(10000)
+          });
+          const rawCookie = keyRes.headers.get('set-cookie');
+          if (rawCookie) {
+            headers['Cookie'] = rawCookie.split(';')[0].trim();
+          }
+        } catch (keyErr) {
+          console.warn('[ERP-API] Failed to fetch pre-auth session key from MasterStudent/apikey:', keyErr.message);
+        }
+      }
+
       if (token) {
         if (!isValidToken(token)) {
           console.warn('[ERP-API] Invalid token format rejected.');
@@ -2020,19 +2045,16 @@ let erpHealthStatus = { reachable: true, lastChecked: 0, latencyMs: 0 };
 async function probeErpHealth() {
   const start = Date.now();
   try {
-    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/login`, {
-      method: 'POST',
+    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/apikey`, {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
         'Origin': ERP_ORIGIN,
-        'ERP-API-KEY': ERP_API_KEY
+        'Referer': `${ERP_ORIGIN}/login`
       },
-      body: JSON.stringify({ RegisterNumber: 'healthcheck', Password: 'probe' }),
       signal: AbortSignal.timeout(8000)
     });
-    // Even a 401 means the server is reachable and processing requests
-    erpHealthStatus = { reachable: res.status !== 403, lastChecked: Date.now(), latencyMs: Date.now() - start, httpStatus: res.status };
+    erpHealthStatus = { reachable: res.status === 200, lastChecked: Date.now(), latencyMs: Date.now() - start, httpStatus: res.status };
     console.log(`[ERP-Health] Probe: HTTP ${res.status}, latency ${erpHealthStatus.latencyMs}ms, reachable=${erpHealthStatus.reachable}`);
   } catch (e) {
     erpHealthStatus = { reachable: false, lastChecked: Date.now(), latencyMs: Date.now() - start, error: e.message };

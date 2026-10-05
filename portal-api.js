@@ -264,16 +264,16 @@ const PortalAPI = {
         body: JSON.stringify({ regNumber: cleanReg, password: cleanPass })
       });
       const serverData = await resp.json().catch(() => null);
-      if (resp.ok && serverData?.success && serverData?.data?.attendanceSummary?.totalDays > 0) {
+      if (resp.ok && serverData?.success) {
         payload = serverData;
         console.log('✅ Authenticated via High-Speed Scraper Proxy');
-      } else if (resp.status === 401 && serverData?.message) {
-        // Explicit credential rejection from ERP
+      } else if (serverData?.message) {
+        // Explicit credential rejection from ERP or server
         throw new Error(serverData.message);
       }
     } catch (proxyErr) {
       // If explicit credential failure, rethrow immediately
-      if (proxyErr.message && !proxyErr.message.includes('fetch') && !proxyErr.message.includes('NetworkError')) {
+      if (proxyErr.message && !proxyErr.message.includes('fetch') && !proxyErr.message.includes('NetworkError') && !proxyErr.message.includes('Failed to fetch')) {
         throw proxyErr;
       }
       console.warn('[PortalAPI] Server proxy unavailable, trying Direct Client Gateway...', proxyErr.message);
