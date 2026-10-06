@@ -108,11 +108,19 @@ const PortalAPI = {
   async loginDirectClient(cleanReg, cleanPass) {
     console.log('[PortalAPI] Authenticating directly via Student Device Gateway...');
 
-    // 1. Direct login to ERP
-    const loginData = await this.fetchErpDirect('MasterStudent/login', null, {
-      RegisterNumber: cleanReg,
-      Password: cleanPass
-    });
+    // 1. Direct login to ERP (login1 endpoint)
+    let loginData = null;
+    try {
+      loginData = await this.fetchErpDirect('MasterStudent/login1', null, {
+        RegisterNumber: cleanReg,
+        Password: cleanPass
+      });
+    } catch (e1) {
+      loginData = await this.fetchErpDirect('MasterStudent/login', null, {
+        RegisterNumber: cleanReg,
+        Password: cleanPass
+      });
+    }
 
     if (!loginData || loginData.status !== true) {
       const errMsg = loginData?.message || 'Invalid Register Number or Password.';

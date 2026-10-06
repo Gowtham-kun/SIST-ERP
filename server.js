@@ -306,27 +306,9 @@ async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) 
         'ERP-API-KEY': ERP_API_KEY
       };
 
-      // For MasterStudent/login, execute the pre-auth handshake with MasterStudent/apikey to acquire the dynamic erp_sk session cookie
-      if (endpoint === 'MasterStudent/login') {
+      // Set login referer header for student login endpoint
+      if (endpoint === 'MasterStudent/login1' || endpoint === 'MasterStudent/login') {
         headers['Referer'] = `${ERP_ORIGIN}/login`;
-        try {
-          const keyRes = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/apikey`, {
-            method: 'GET',
-            headers: {
-              'User-Agent': ua,
-              'Accept': 'application/json, text/plain, */*',
-              'Origin': ERP_ORIGIN,
-              'Referer': `${ERP_ORIGIN}/login`
-            },
-            signal: AbortSignal.timeout(10000)
-          });
-          const rawCookie = keyRes.headers.get('set-cookie');
-          if (rawCookie) {
-            headers['Cookie'] = rawCookie.split(';')[0].trim();
-          }
-        } catch (keyErr) {
-          console.warn('[ERP-API] Failed to fetch pre-auth session key from MasterStudent/apikey:', keyErr.message);
-        }
       }
 
       if (token) {
@@ -1795,11 +1777,19 @@ async function loginHandler(req, res) {
   console.log(`[REST-Auth] Authenticating student ${maskedReg}...`);
 
   try {
-    // 1. Authenticate with ERP API
-    const loginData = await erpPostDirect('MasterStudent/login', null, {
+    // 1. Authenticate with ERP API (MasterStudent/login1 primary, MasterStudent/login fallback)
+    let loginData = await erpPostDirect('MasterStudent/login1', null, {
       RegisterNumber: cleanReg,
       Password: cleanPass
     });
+
+    if (!loginData || (loginData.status === false && (loginData?.message === 'Unauthorized domain' || loginData?.message === 'Invalid Request'))) {
+      const fallbackData = await erpPostDirect('MasterStudent/login', null, {
+        RegisterNumber: cleanReg,
+        Password: cleanPass
+      });
+      if (fallbackData) loginData = fallbackData;
+    }
 
     if (!loginData) {
       console.log(`[REST-Auth] ERP server unreachable or timed out for ${maskedReg}`);
@@ -2045,15 +2035,18 @@ let erpHealthStatus = { reachable: true, lastChecked: 0, latencyMs: 0 };
 async function probeErpHealth() {
   const start = Date.now();
   try {
-    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/apikey`, {
-      method: 'GET',
+    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/login1`, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
         'Origin': ERP_ORIGIN,
         'Referer': `${ERP_ORIGIN}/login`
       },
+      body: JSON.stringify({ RegisterNumber: 'healthcheck', Password: 'probe' }),
       signal: AbortSignal.timeout(8000)
     });
+    // Status 200 (even with failed credentials) means ERP is fully up and servicing auth requests
     erpHealthStatus = { reachable: res.status === 200, lastChecked: Date.now(), latencyMs: Date.now() - start, httpStatus: res.status };
     console.log(`[ERP-Health] Probe: HTTP ${res.status}, latency ${erpHealthStatus.latencyMs}ms, reachable=${erpHealthStatus.reachable}`);
   } catch (e) {
