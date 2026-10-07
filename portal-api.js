@@ -8,7 +8,8 @@
 const REMEMBERED_REG_KEY = 'sathy_remembered_regno';
 const LEGACY_STORAGE_KEY = 'sathy_credentials_v2';
 const TOKEN_KEY          = 'sathy_access_token';
-const ERP_BASE_URL       = 'https://erp.sathyabama.ac.in/erp/api/v1.0';
+const ERP_BASE_URL       = 'https://erp2.sathyabama.ac.in/erp/api/v1.0';
+const ERP_FALLBACK_URL   = 'https://erp.sathyabama.ac.in/erp/api/v1.0';
 const ERP_API_KEY        = 'ggd252agagagag362';
 
 const PortalAPI = {
@@ -69,12 +70,31 @@ const PortalAPI = {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    const res = await fetch(`${ERP_BASE_URL}/${endpoint}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
+
+    let res = null;
+    try {
+      res = await fetch(`${ERP_BASE_URL}/${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      if (res.status === 404 || res.status === 403) {
+        res = await fetch(`${ERP_FALLBACK_URL}/${endpoint}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs)
+        });
+      }
+    } catch {
+      res = await fetch(`${ERP_FALLBACK_URL}/${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    }
 
     const data = await res.json().catch(() => null);
 
@@ -108,15 +128,16 @@ const PortalAPI = {
   async loginDirectClient(cleanReg, cleanPass) {
     console.log('[PortalAPI] Authenticating directly via Student Device Gateway...');
 
-    // 1. Direct login to ERP (login1 endpoint)
+    // 1. Direct login to ERP (MasterStudent/login primary, MasterStudent/login1 fallback)
     let loginData = null;
     try {
-      loginData = await this.fetchErpDirect('MasterStudent/login1', null, {
+      loginData = await this.fetchErpDirect('MasterStudent/login', null, {
         RegisterNumber: cleanReg,
         Password: cleanPass
       });
     } catch (e1) {
-      loginData = await this.fetchErpDirect('MasterStudent/login', null, {
+      if (e1.message && e1.message.includes('Invalid Register Number')) throw e1;
+      loginData = await this.fetchErpDirect('MasterStudent/login1', null, {
         RegisterNumber: cleanReg,
         Password: cleanPass
       });

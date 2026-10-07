@@ -24,7 +24,7 @@ app.use((req, res, next) => {
     "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://va.vercel-scripts.com; " +
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com data:; " +
-    "connect-src 'self' https://erp.sathyabama.ac.in https://*.vercel-insights.com; " +
+    "connect-src 'self' https://erp.sathyabama.ac.in https://erp2.sathyabama.ac.in https://*.vercel-insights.com; " +
     "img-src 'self' data: https:; " +
     "frame-ancestors 'self'; " +
     "base-uri 'self'; " +
@@ -252,7 +252,8 @@ function sanitizeForLog(str) {
   return s.slice(0, 3) + '****' + s.slice(-2);
 }
 
-const ERP_ORIGIN = 'https://erp.sathyabama.ac.in';
+const ERP_ORIGIN = process.env.ERP_ORIGIN || 'https://erp2.sathyabama.ac.in';
+const ERP_FALLBACK_ORIGIN = 'https://erp.sathyabama.ac.in';
 const ERP_API_KEY = 'ggd252agagagag362';
 
 // ─── In-Memory TTL Cache (reduces redundant ERP calls) ───────────────────────
@@ -286,7 +287,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-// ─── Direct ERP API Caller (with Retry, Backoff & Enhanced Diagnostics) ──────
+// ─── Direct ERP API Caller (with Multi-Origin Support & Automatic Retry) ────
 async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) {
   const USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -294,83 +295,92 @@ async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) 
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
   ];
 
+  const originsToTry = [ERP_ORIGIN, ERP_FALLBACK_ORIGIN];
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const ua = USER_AGENTS[attempt % USER_AGENTS.length];
-      const headers = {
-        'Content-Type': 'application/json',
-        'User-Agent': ua,
-        'Accept': 'application/json, text/plain, */*',
-        'Origin': ERP_ORIGIN,
-        'Referer': `${ERP_ORIGIN}/student/view`,
-        'ERP-API-KEY': ERP_API_KEY
-      };
+    for (const origin of originsToTry) {
+      try {
+        const ua = USER_AGENTS[attempt % USER_AGENTS.length];
+        const headers = {
+          'Content-Type': 'application/json',
+          'User-Agent': ua,
+          'Accept': 'application/json, text/plain, */*',
+          'Origin': 'https://erp.sathyabama.ac.in',
+          'Referer': `${origin}/student/view`,
+          'ERP-API-KEY': ERP_API_KEY
+        };
 
-      // Set login referer header for student login endpoint
-      if (endpoint === 'MasterStudent/login1' || endpoint === 'MasterStudent/login') {
-        headers['Referer'] = `${ERP_ORIGIN}/login`;
-      }
+        // Set login referer header for student login endpoint
+        if (endpoint === 'MasterStudent/login1' || endpoint === 'MasterStudent/login') {
+          headers['Referer'] = `${origin}/login`;
+        }
 
-      if (token) {
-        if (!isValidToken(token)) {
-          console.warn('[ERP-API] Invalid token format rejected.');
+        if (token) {
+          if (!isValidToken(token)) {
+            console.warn('[ERP-API] Invalid token format rejected.');
+            return null;
+          }
+          headers['Authorization'] = `Bearer ${token}`;
+          headers['Access-Token'] = token;
+          headers['Token'] = token;
+        }
+
+        const res = await fetch(`${origin}/erp/api/v1.0/${endpoint}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15000)
+        });
+
+        // If this origin 404s or 403s, fail over to the next origin
+        if ((res.status === 404 || res.status === 403) && origin !== originsToTry[originsToTry.length - 1]) {
+          continue;
+        }
+
+        // Handle rate-limiting: wait and retry
+        if (res.status === 429 && attempt < maxRetries) {
+          const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
+          const jitter = Math.random() * 2000;
+          console.log(`[ERP-API] ${endpoint} rate-limited (429). Retrying in ${retryAfter}s (attempt ${attempt + 1}/${maxRetries})...`);
+          await new Promise(r => setTimeout(r, (retryAfter * 1000) + jitter));
+          break;
+        }
+
+        // Handle WAF/firewall block: backoff and retry with different UA
+        if (res.status === 403 && attempt < maxRetries) {
+          const delay = 2000 + Math.random() * 3000;
+          console.log(`[ERP-API] ${endpoint} blocked (403). Retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})...`);
+          await new Promise(r => setTimeout(r, delay));
+          break;
+        }
+
+        // If ERP returns 401 with JSON error payload (e.g. {"status":false,"message":"Invalid Request"}), parse and return it
+        if (res.status === 401) {
+          try {
+            const data = await res.json();
+            return data;
+          } catch { /* fallback to error logging below */ }
+        }
+
+        if (!res.ok) {
+          const errorBody = await res.text().catch(() => '');
+          const headersSummary = {};
+          res.headers.forEach((v, k) => { headersSummary[k] = v; });
+          console.log(`[ERP-API] ${endpoint} HTTP ${res.status} on ${origin} | Headers: ${JSON.stringify(headersSummary)} | Body: ${errorBody.substring(0, 500)}`);
+          if (origin !== originsToTry[originsToTry.length - 1]) continue;
           return null;
         }
-        headers['Authorization'] = `Bearer ${token}`;
-        headers['Access-Token'] = token;
-        headers['Token'] = token;
+        const data = await res.json();
+        return data;
+      } catch (e) {
+        console.log(`[ERP-API] ${endpoint} error on ${origin} (attempt ${attempt + 1}/${maxRetries + 1}): ${e.name} — ${e.message}`);
+        if (origin !== originsToTry[originsToTry.length - 1]) continue;
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+          console.log(`[ERP-API] Retrying ${endpoint} in ${Math.round(delay)}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
       }
-
-      const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/${endpoint}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(15000)
-      });
-
-      // Handle rate-limiting: wait and retry
-      if (res.status === 429 && attempt < maxRetries) {
-        const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
-        const jitter = Math.random() * 2000;
-        console.log(`[ERP-API] ${endpoint} rate-limited (429). Retrying in ${retryAfter}s (attempt ${attempt + 1}/${maxRetries})...`);
-        await new Promise(r => setTimeout(r, (retryAfter * 1000) + jitter));
-        continue;
-      }
-
-      // Handle WAF/firewall block: backoff and retry with different UA
-      if (res.status === 403 && attempt < maxRetries) {
-        const delay = 2000 + Math.random() * 3000;
-        console.log(`[ERP-API] ${endpoint} blocked (403). Retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})...`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-
-      // If ERP returns 401 with JSON error payload (e.g. {"status":false,"message":"Invalid Request"}), parse and return it
-      if (res.status === 401) {
-        try {
-          const data = await res.json();
-          return data;
-        } catch { /* fallback to error logging below */ }
-      }
-
-      if (!res.ok) {
-        const errorBody = await res.text().catch(() => '');
-        const headersSummary = {};
-        res.headers.forEach((v, k) => { headersSummary[k] = v; });
-        console.log(`[ERP-API] ${endpoint} HTTP ${res.status} | Headers: ${JSON.stringify(headersSummary)} | Body: ${errorBody.substring(0, 500)}`);
-        return null;
-      }
-      const data = await res.json();
-      return data;
-    } catch (e) {
-      console.log(`[ERP-API] ${endpoint} error (attempt ${attempt + 1}/${maxRetries + 1}): ${e.name} — ${e.message}`);
-      if (attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-        console.log(`[ERP-API] Retrying ${endpoint} in ${Math.round(delay)}ms...`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-      return null;
     }
   }
   return null;
@@ -1777,14 +1787,14 @@ async function loginHandler(req, res) {
   console.log(`[REST-Auth] Authenticating student ${maskedReg}...`);
 
   try {
-    // 1. Authenticate with ERP API (MasterStudent/login1 primary, MasterStudent/login fallback)
-    let loginData = await erpPostDirect('MasterStudent/login1', null, {
+    // 1. Authenticate with ERP API (MasterStudent/login primary, MasterStudent/login1 fallback)
+    let loginData = await erpPostDirect('MasterStudent/login', null, {
       RegisterNumber: cleanReg,
       Password: cleanPass
     });
 
     if (!loginData || (loginData.status === false && (loginData?.message === 'Unauthorized domain' || loginData?.message === 'Invalid Request'))) {
-      const fallbackData = await erpPostDirect('MasterStudent/login', null, {
+      const fallbackData = await erpPostDirect('MasterStudent/login1', null, {
         RegisterNumber: cleanReg,
         Password: cleanPass
       });
@@ -2035,12 +2045,12 @@ let erpHealthStatus = { reachable: true, lastChecked: 0, latencyMs: 0 };
 async function probeErpHealth() {
   const start = Date.now();
   try {
-    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/login1`, {
+    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
-        'Origin': ERP_ORIGIN,
+        'Origin': 'https://erp.sathyabama.ac.in',
         'Referer': `${ERP_ORIGIN}/login`
       },
       body: JSON.stringify({ RegisterNumber: 'healthcheck', Password: 'probe' }),
