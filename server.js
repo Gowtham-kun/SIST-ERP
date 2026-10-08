@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,10 +22,11 @@ app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://va.vercel-scripts.com; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://va.vercel-scripts.com https://challenges.cloudflare.com; " +
+    "frame-src 'self' https://challenges.cloudflare.com; " +
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com data:; " +
-    "connect-src 'self' https://erp.sathyabama.ac.in https://erp2.sathyabama.ac.in https://*.vercel-insights.com; " +
+    "connect-src 'self' https://erp.sathyabama.ac.in https://erp2.sathyabama.ac.in https://*.vercel-insights.com https://challenges.cloudflare.com; " +
     "img-src 'self' data: https:; " +
     "frame-ancestors 'self'; " +
     "base-uri 'self'; " +
@@ -252,6 +254,21 @@ function sanitizeForLog(str) {
   return s.slice(0, 3) + '****' + s.slice(-2);
 }
 
+// ─── Cryptographic Key Generator (required by ERP logint) ───────────────────
+function generateAlphaNumericKey(len = 48) {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const limit = Math.floor(256 / chars.length) * chars.length;
+  let result = '';
+  while (result.length < len) {
+    const bytes = crypto.randomBytes(len - result.length);
+    for (let i = 0; i < bytes.length && result.length < len; i++) {
+      const val = bytes[i];
+      if (val < limit) result += chars[val % chars.length];
+    }
+  }
+  return result;
+}
+
 const ERP_ORIGIN = process.env.ERP_ORIGIN || 'https://erp2.sathyabama.ac.in';
 const ERP_FALLBACK_ORIGIN = 'https://erp.sathyabama.ac.in';
 const ERP_API_KEY = 'ggd252agagagag362';
@@ -311,7 +328,7 @@ async function erpPostDirect(endpoint, token = null, body = {}, maxRetries = 2) 
         };
 
         // Set login referer header for student login endpoint
-        if (endpoint === 'MasterStudent/login1' || endpoint === 'MasterStudent/login') {
+        if (endpoint.startsWith('MasterStudent/login')) {
           headers['Referer'] = `${origin}/login`;
         }
 
@@ -1787,18 +1804,31 @@ async function loginHandler(req, res) {
   console.log(`[REST-Auth] Authenticating student ${maskedReg}...`);
 
   try {
-    // 1. Authenticate with ERP API (MasterStudent/login primary, MasterStudent/login1 fallback)
-    let loginData = await erpPostDirect('MasterStudent/login', null, {
+    // 1. Authenticate with ERP API (MasterStudent/logint primary with captcha bypass, MasterStudent/login & login1 fallback)
+    const capchaKey = generateAlphaNumericKey();
+    const loginPayload = {
       RegisterNumber: cleanReg,
-      Password: cleanPass
-    });
+      Password: cleanPass,
+      CapchaKey: capchaKey,
+      TurnstileToken: 'bypass'
+    };
 
-    if (!loginData || (loginData.status === false && (loginData?.message === 'Unauthorized domain' || loginData?.message === 'Invalid Request'))) {
-      const fallbackData = await erpPostDirect('MasterStudent/login1', null, {
+    let loginData = await erpPostDirect('MasterStudent/logint', null, loginPayload);
+
+    if (!loginData || (loginData.status === false && (loginData?.message === 'Unauthorized domain' || loginData?.message === 'Invalid Request' || loginData?.code === 'CAPTCHA_INVALID'))) {
+      const fallbackData = await erpPostDirect('MasterStudent/login', null, {
         RegisterNumber: cleanReg,
         Password: cleanPass
       });
-      if (fallbackData) loginData = fallbackData;
+      if (fallbackData) {
+        loginData = fallbackData;
+      } else {
+        const fallback1 = await erpPostDirect('MasterStudent/login1', null, {
+          RegisterNumber: cleanReg,
+          Password: cleanPass
+        });
+        if (fallback1) loginData = fallback1;
+      }
     }
 
     if (!loginData) {
@@ -2045,7 +2075,7 @@ let erpHealthStatus = { reachable: true, lastChecked: 0, latencyMs: 0 };
 async function probeErpHealth() {
   const start = Date.now();
   try {
-    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/login`, {
+    const res = await fetch(`${ERP_ORIGIN}/erp/api/v1.0/MasterStudent/logint`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2053,7 +2083,12 @@ async function probeErpHealth() {
         'Origin': 'https://erp.sathyabama.ac.in',
         'Referer': `${ERP_ORIGIN}/login`
       },
-      body: JSON.stringify({ RegisterNumber: 'healthcheck', Password: 'probe' }),
+      body: JSON.stringify({
+        RegisterNumber: 'healthcheck',
+        Password: 'probe',
+        CapchaKey: 'healthcheckprobe123456789012345678901234567890',
+        TurnstileToken: 'bypass'
+      }),
       signal: AbortSignal.timeout(8000)
     });
     // Status 200 (even with failed credentials) means ERP is fully up and servicing auth requests

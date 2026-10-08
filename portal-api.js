@@ -124,23 +124,58 @@ const PortalAPI = {
       : { fromDate: `${curYear}-01-01`, toDate: `${curYear}-06-30` };
   },
 
-  // ── Direct Client Gateway Login (Bypasses server IP bans completely) ──────
+  // Helper to generate 48-char alphanumeric key required by ERP logint
+  generateAlphaNumericKey(len = 48) {
+    const chars = '0123456789abcdefghijklmnopqrstuvwxyz';
+    const limit = Math.floor(256 / chars.length) * chars.length;
+    let result = '';
+    while (result.length < len) {
+      const bytes = new Uint8Array(len - result.length);
+      if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(bytes);
+      } else {
+        for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+      }
+      for (let i = 0; i < bytes.length && result.length < len; i++) {
+        const val = bytes[i];
+        if (val < limit) {
+          result += chars[val % chars.length];
+        }
+      }
+    }
+    return result;
+  },
+
+  // ── Direct Client Gateway Login (Bypasses server IP bans & captcha) ───────
   async loginDirectClient(cleanReg, cleanPass) {
     console.log('[PortalAPI] Authenticating directly via Student Device Gateway...');
 
-    // 1. Direct login to ERP (MasterStudent/login primary, MasterStudent/login1 fallback)
+    // 1. Direct login to ERP (MasterStudent/logint primary with captcha bypass, MasterStudent/login fallback)
+    const capchaKey = this.generateAlphaNumericKey();
+    const loginPayload = {
+      RegisterNumber: cleanReg,
+      Password: cleanPass,
+      CapchaKey: capchaKey,
+      TurnstileToken: 'bypass'
+    };
+
     let loginData = null;
     try {
-      loginData = await this.fetchErpDirect('MasterStudent/login', null, {
-        RegisterNumber: cleanReg,
-        Password: cleanPass
-      });
+      loginData = await this.fetchErpDirect('MasterStudent/logint', null, loginPayload);
     } catch (e1) {
       if (e1.message && e1.message.includes('Invalid Register Number')) throw e1;
-      loginData = await this.fetchErpDirect('MasterStudent/login1', null, {
-        RegisterNumber: cleanReg,
-        Password: cleanPass
-      });
+      try {
+        loginData = await this.fetchErpDirect('MasterStudent/login', null, {
+          RegisterNumber: cleanReg,
+          Password: cleanPass
+        });
+      } catch (e2) {
+        if (e2.message && e2.message.includes('Invalid Register Number')) throw e2;
+        loginData = await this.fetchErpDirect('MasterStudent/login1', null, {
+          RegisterNumber: cleanReg,
+          Password: cleanPass
+        });
+      }
     }
 
     if (!loginData || loginData.status !== true) {
