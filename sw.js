@@ -2,7 +2,7 @@
  * Sathyabama Student Portal — Service Worker (Maintenance Mode)
  */
 
-const CACHE_NAME = 'sathy-maintenance-v1';
+const CACHE_NAME = 'sathy-maintenance-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

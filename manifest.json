@@ -1,7 +1,7 @@
 {
-  "name": "Maintenance mode",
-  "short_name": "Maintenance",
-  "description": "Maintenance mode. Will be back soon.",
+  "name": "Adios",
+  "short_name": "Adios",
+  "description": "As our college repeatedly tried to take down my website, I've decided to make this project private. Thank You.",
   "start_url": "/",
   "id": "/",
   "display": "standalone",

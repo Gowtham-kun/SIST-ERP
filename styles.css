@@ -3,7 +3,9 @@
 :root {
   --bg-color: #000000;
   --text-primary: #ffffff;
-  --text-secondary: #9ca3af;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent-line: rgba(255, 255, 255, 0.12);
 }
 
 *, *::before, *::after {
@@ -32,47 +34,89 @@ body {
   align-items: center;
   justify-content: center;
   user-select: none;
+  background: radial-gradient(circle at 50% 40%, #11131a 0%, #000000 80%);
 }
 
 .maintenance-screen {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  padding: 2rem 1.5rem;
+}
+
+.maintenance-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
   width: 100%;
-  max-width: 960px;
-  padding: 1.5rem;
-  animation: maintenanceFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  max-width: 620px;
+  animation: maintenanceFadeIn 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .maintenance-title {
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  font-size: clamp(2.5rem, 8vw, 5.5rem);
+  font-size: clamp(3rem, 8vw, 5.25rem);
   font-weight: 800;
-  letter-spacing: -0.035em;
-  line-height: 1.05;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
   color: #ffffff;
-  margin: 0;
+  margin: 0 0 1.5rem 0;
+  background: linear-gradient(180deg, #ffffff 0%, #d4d4d8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-.maintenance-subtitle {
+.maintenance-body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  font-size: clamp(1.125rem, 3vw, 2rem);
+  font-size: clamp(1.05rem, 2.4vw, 1.35rem);
   font-weight: 400;
   letter-spacing: -0.015em;
+  line-height: 1.65;
+  color: #a1a1aa;
+  max-width: 540px;
+  margin: 0 auto;
+  text-wrap: balance;
+}
+
+.maintenance-divider {
+  width: 48px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  margin: 2rem auto;
+}
+
+.maintenance-closing {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: clamp(1.15rem, 2.5vw, 1.4rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.4;
-  color: #9ca3af;
-  margin-top: 1rem;
+  color: #f4f4f5;
+  margin: 0;
 }
 
 @keyframes maintenanceFadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(14px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Mobile fine-tuning */
+@media (max-width: 480px) {
+  .maintenance-card {
+    padding: 0 0.5rem;
+  }
+  .maintenance-title {
+    margin-bottom: 1.25rem;
+  }
+  .maintenance-divider {
+    margin: 1.75rem auto;
   }
 }
